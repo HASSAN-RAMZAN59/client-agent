@@ -125,7 +125,7 @@ export class OutreachGateService {
     }
 
     // 8. Human Approval Status
-    const isApproved = !!draft.approvedAt && draft.status === 'APPROVED';
+    const isApproved = !!draft.approvedAt && (draft.status === 'APPROVED' || draft.status === 'READY_TO_SEND');
 
     // 9. Global Safety Configuration Check
     if (!config.OUTREACH_ENABLED) {

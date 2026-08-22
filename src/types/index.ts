@@ -520,6 +520,49 @@ export interface SuppressionEntry {
   updatedAt: Date;
 }
 
+// ------------------------------------------------------------------------------
+// Phase 7 Outreach Execution & Delivery Provider Types
+// ------------------------------------------------------------------------------
+
+export interface DeliveryParams {
+  outreachId: string;
+  leadId: string;
+  businessId: string;
+  businessName: string;
+  recipient: string;
+  recipientType: string;
+  subject: string;
+  body: string;
+  dryRun: boolean;
+}
+
+export interface DeliveryResult {
+  success: boolean;
+  status: 'SENT' | 'SIMULATED' | 'FAILED';
+  messageId?: string;
+  attemptedAt: Date;
+  error?: string;
+  providerName: string;
+  dryRun: boolean;
+}
+
+export interface OutreachDeliveryProvider {
+  readonly name: string;
+  isAvailable(): Promise<boolean>;
+  send(params: DeliveryParams): Promise<DeliveryResult>;
+  getCapabilities(): { supportsHtml: boolean; supportsAttachments: boolean };
+}
+
+export interface ExecutionBatchSummary {
+  totalEligible: number;
+  attempted: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  dryRun: boolean;
+  results: DeliveryResult[];
+}
+
 export interface ContactDiscoveryProvider {
   readonly providerName: string;
   findContacts(businessName: string, website?: string): Promise<DiscoveredContactInput[]>;

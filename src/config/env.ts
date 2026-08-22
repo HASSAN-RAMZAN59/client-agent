@@ -231,6 +231,26 @@ const envSchema = z.object({
     .refine((val) => !isNaN(val) && val > 0 && val <= 200, 'MAX_EMAILS_PER_DAY must be between 1 and 200')
     .default(20),
 
+  // Phase 7 SMTP Delivery Provider Configuration
+  SMTP_HOST: z.string().optional().default(''),
+  SMTP_PORT: z
+    .string()
+    .or(z.number())
+    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
+    .default(587),
+  SMTP_SECURE: z
+    .string()
+    .or(z.boolean())
+    .transform((val) => {
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    })
+    .default(false),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASSWORD: z.string().optional().default(''),
+  SMTP_FROM_NAME: z.string().default('Alex Morgan'),
+  SMTP_FROM_EMAIL: z.string().default('alex@modernwebstudio.com'),
+
   // Future Module Placeholders
   GMAIL_CLIENT_ID: z.string().optional().default(''),
   GMAIL_CLIENT_SECRET: z.string().optional().default(''),

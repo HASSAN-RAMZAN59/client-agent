@@ -81,7 +81,21 @@ export async function buildPersonalizationContext(leadId: string): Promise<Perso
     ? JSON.parse(lead.topProblems)
     : topProblems;
 
-  const salesAngle = lead.salesAngle ? JSON.parse(lead.salesAngle) : null;
+  let salesAngle = null;
+  if (lead.salesAngle) {
+    try {
+      salesAngle = JSON.parse(lead.salesAngle);
+    } catch {
+      salesAngle = {
+        problem: lead.salesAngle,
+        opportunity: 'Improve website UX and performance',
+        recommendedService: lead.recommendedService || 'WEBSITE_IMPROVEMENT',
+        businessImpact: 'Increase online conversions and patient acquisition',
+        confidence: 'MEDIUM',
+        evidence: [],
+      };
+    }
+  }
 
   return {
     business: {

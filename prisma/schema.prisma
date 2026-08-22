@@ -213,7 +213,10 @@ model Outreach {
   approvedAt           DateTime?   // Timestamp of explicit human approval
   approvedBy           String?     // Identifier of human operator who approved
   expiresAt            DateTime?   // Staleness timestamp
-  status               String      @default("DRAFT") // DRAFT, REVIEW_REQUIRED, APPROVED, READY_TO_SEND, REJECTED, SUPPRESSED, STALE, INVALID, EXPIRED, SENT, FAILED
+  attemptedAt          DateTime?   // Timestamp of latest delivery attempt
+  providerMessageId    String?     // Transport message identifier (e.g. SMTP msg-id)
+  dryRun               Boolean     @default(true) // Whether dispatch was a dry-run simulation
+  status               String      @default("DRAFT") // DRAFT, REVIEW_REQUIRED, APPROVED, READY_TO_SEND, SENDING, SENT, FAILED, BOUNCED, REPLIED, UNSUBSCRIBED, SUPPRESSED, REJECTED, STALE
   sentAt               DateTime?
   error                String?
   createdAt            DateTime    @default(now())
@@ -234,6 +237,7 @@ model Outreach {
   @@index([personalizationScore])
   @@index([qualityScore])
   @@index([expiresAt])
+  @@index([attemptedAt])
   @@index([sentAt])
   @@map("outreaches")
 }

@@ -1170,6 +1170,146 @@ program
     }
   });
 
+// ------------------------------------------------------------------------------
+// Phase 7: Controlled Outreach Execution Commands
+// ------------------------------------------------------------------------------
+
+program
+  .command('send')
+  .description('Deliver human-approved READY_TO_SEND outreach drafts through safety gate')
+  .option('-l, --limit <number>', 'Number of drafts to deliver (clamped by MAX_EMAILS_PER_RUN)', '5')
+  .option('--dry-run', 'Run delivery in simulated mode (no network requests)', true)
+  .action(async (options) => {
+    try {
+      const { OutreachExecutionService } = await import('../modules/outreach/execution/outreach-execution.service.js');
+      const executionService = new OutreachExecutionService();
+
+      console.log('\n======================================================');
+      console.log('      CONTROLLED OUTREACH EXECUTION ENGINE (PH7)');
+      console.log('======================================================\n');
+      console.log(`• Provider Mode        : ${executionService.getProviderName()}`);
+      console.log(`• DRY_RUN Simulation   : ${options.dryRun ? 'YES (No emails will be sent)' : 'NO'}`);
+      console.log(`• Requested Limit      : ${options.limit}\n`);
+
+      const summary = await executionService.executeBatch({
+        limit: parseInt(options.limit, 10) || 5,
+        dryRun: options.dryRun,
+      });
+
+      console.log('\n======================================================');
+      console.log('               EXECUTION BATCH SUMMARY');
+      console.log('======================================================\n');
+      console.log(`• Total Eligible Drafts: ${summary.totalEligible}`);
+      console.log(`• Dispatches Attempted : ${summary.attempted}`);
+      console.log(`• Successfully Sent    : ${summary.sent} ${summary.dryRun ? '(SIMULATED ONLY)' : '(REAL DELIVERIES)'}`);
+      console.log(`• Delivery Failures    : ${summary.failed}`);
+      console.log(`• Skipped (Gate/Claim) : ${summary.skipped}`);
+      console.log(`• Mode                 : ${summary.dryRun ? 'DRY_RUN (SAFE SIMULATION)' : 'LIVE OUTREACH'}\n`);
+
+      if (summary.results.length > 0) {
+        const formatted = summary.results.map((r) => ({
+          status: r.status,
+          provider: r.providerName,
+          messageId: r.messageId ? r.messageId.substring(0, 24) : 'N/A',
+          error: r.error ? r.error.substring(0, 30) : 'None',
+          timestamp: r.attemptedAt.toISOString().split('T')[1].substring(0, 8),
+        }));
+        console.table(formatted);
+        console.log('');
+      }
+
+      if (summary.dryRun) {
+        console.log('[SAFETY NOTICE] DRY RUN COMPLETED — ZERO REAL EMAILS DELIVERED.\n');
+      }
+    } catch (err) {
+      logger.error('Outreach execution failed', err);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('send-preview <id>')
+  .description('Comprehensive pre-send inspection verifying final gate decision and limits')
+  .action(async (draftId) => {
+    try {
+      const { OutreachExecutionService } = await import('../modules/outreach/execution/outreach-execution.service.js');
+      const executionService = new OutreachExecutionService();
+
+      const preview = await executionService.previewSend(draftId);
+      const draft = preview.draft;
+
+      console.log('\n======================================================');
+      console.log(`      PRE-SEND INSPECTION: ${draft.lead.business.name}`);
+      console.log('======================================================\n');
+      console.log(`• Draft ID          : ${draft.id}`);
+      console.log(`• Business Name     : ${draft.lead.business.name}`);
+      console.log(`• Recipient         : ${draft.primaryContactValue || 'NONE_FOUND'} (${draft.primaryContactType || 'N/A'})`);
+      console.log(`• Quality Score     : ${draft.qualityScore}/100 [Band: ${draft.qualityBand}]`);
+      console.log(`• Current Status    : ${draft.status}`);
+      console.log(`• Final Pre-Send Gate: ${preview.gateResult.allowed ? 'PASSED' : 'BLOCKED'}`);
+      console.log(`• Final Result      : ${preview.sendable ? '✔ SENDABLE' : '❌ BLOCKED'}\n`);
+
+      console.log('--- Daily & Batch Quota Checks ---');
+      console.log(`• Daily Volume Sent : ${preview.limits.dailySent}/${preview.limits.dailyMax}`);
+      console.log(`• Run Batch Max     : ${preview.limits.runMax}`);
+      console.log(`• Cooldown Window   : ${preview.limits.cooldownDays} days`);
+      console.log(`• OUTREACH_ENABLED  : ${preview.limits.outreachEnabled}`);
+      console.log(`• DRY_RUN           : ${preview.limits.dryRun}\n`);
+
+      if (preview.reasons.length > 0) {
+        console.log('--- Send Blocking Reasons ---');
+        preview.reasons.forEach((r) => console.log(`  ❌  ${r}`));
+        console.log('');
+      }
+
+      if (preview.warnings.length > 0) {
+        console.log('--- Pre-Flight Advisories ---');
+        preview.warnings.forEach((w) => console.log(`  ⚠️  ${w}`));
+        console.log('');
+      }
+
+      console.log('--- Approved Message Content ---');
+      console.log(`Subject: ${draft.subject}`);
+      console.log(`\n${draft.body}\n`);
+      console.log('------------------------------------------------------\n');
+    } catch (err) {
+      logger.error('Failed to preview send', err);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('send-status')
+  .description('Display real-time quota telemetry and provider availability')
+  .action(async () => {
+    try {
+      const { OutreachExecutionService } = await import('../modules/outreach/execution/outreach-execution.service.js');
+      const { OutreachRepository } = await import('../database/repositories/outreach.repository.js');
+      const executionService = new OutreachExecutionService();
+      const outreachRepo = new OutreachRepository();
+
+      const readyToSend = await outreachRepo.getReadyToSendDrafts(100);
+      const dailySent = await outreachRepo.getDailySentCount();
+
+      console.log('\n======================================================');
+      console.log('      OUTREACH EXECUTION TELEMETRY & STATUS');
+      console.log('======================================================\n');
+      console.log(`• Provider Name       : ${executionService.getProviderName()}`);
+      console.log(`• OUTREACH_ENABLED    : ${config.OUTREACH_ENABLED} (Global Send Lock)`);
+      console.log(`• DRY_RUN             : ${config.DRY_RUN} (Safe Simulation Mode)`);
+      console.log(`• Ready to Send Drafts: ${readyToSend.length} draft(s) awaiting delivery`);
+      console.log(`• Daily Delivered     : ${dailySent}/${config.MAX_EMAILS_PER_DAY} allowed per day`);
+      console.log(`• Per-Run Limit       : ${config.MAX_EMAILS_PER_RUN} emails max per batch`);
+      console.log(`• Inter-Send Delay    : ${config.OUTREACH_MIN_DELAY_MS}ms sequential spacing\n`);
+    } catch (err) {
+      logger.error('Failed to get send status', err);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
 function printPersonalizationCard(res: import('../types/index.js').PersonalizationResult): void {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('LEAD INTELLIGENCE CARD');

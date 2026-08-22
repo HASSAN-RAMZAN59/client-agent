@@ -174,17 +174,16 @@ export class OutreachRepository {
   public async checkCooldown(businessId: string, contactValue?: string | null, cooldownDays: number = 30): Promise<{ inCooldown: boolean; lastContactAt?: Date }> {
     const cooldownThreshold = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
 
-    const whereClause: any = {
-      lead: { businessId },
-      sentAt: { gte: cooldownThreshold },
-    };
-
+    const orConditions: any[] = [{ lead: { businessId } }];
     if (contactValue) {
-      whereClause.primaryContactValue = contactValue;
+      orConditions.push({ primaryContactValue: contactValue });
     }
 
     const recentOutreach = await this.db.outreach.findFirst({
-      where: whereClause,
+      where: {
+        sentAt: { gte: cooldownThreshold },
+        OR: orConditions,
+      },
       orderBy: { sentAt: 'desc' },
     });
 
@@ -196,5 +195,89 @@ export class OutreachRepository {
     }
 
     return { inCooldown: false };
+  }
+
+  /**
+   * ATOMIC CLAIM: Atomically locks a READY_TO_SEND draft to SENDING state.
+   * Returns true if successfully claimed, false if claimed by another worker.
+   */
+  public async claimDraftForSending(id: string): Promise<boolean> {
+    const updated = await this.db.outreach.updateMany({
+      where: {
+        id,
+        status: 'READY_TO_SEND',
+      },
+      data: {
+        status: 'SENDING',
+        attemptedAt: new Date(),
+      },
+    });
+
+    return updated.count > 0;
+  }
+
+  public async markSent(
+    id: string,
+    params: { messageId?: string; dryRun: boolean }
+  ): Promise<Outreach> {
+    return this.db.outreach.update({
+      where: { id },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+        providerMessageId: params.messageId || null,
+        dryRun: params.dryRun,
+        error: null,
+      },
+    });
+  }
+
+  public async markFailed(
+    id: string,
+    error: string,
+    dryRun: boolean = true
+  ): Promise<Outreach> {
+    return this.db.outreach.update({
+      where: { id },
+      data: {
+        status: 'FAILED',
+        error,
+        dryRun,
+      },
+    });
+  }
+
+  public async getDailySentCount(date: Date = new Date()): Promise<number> {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    return this.db.outreach.count({
+      where: {
+        status: 'SENT',
+        sentAt: { gte: startOfDay, lte: endOfDay },
+      },
+    });
+  }
+
+  public async getReadyToSendDrafts(limit: number = 10): Promise<any[]> {
+    return this.db.outreach.findMany({
+      where: { status: 'READY_TO_SEND' },
+      take: limit,
+      orderBy: [{ qualityScore: 'desc' }, { updatedAt: 'asc' }],
+      include: {
+        lead: {
+          include: {
+            business: {
+              include: {
+                audits: { orderBy: { updatedAt: 'desc' }, take: 1 },
+                contacts: true,
+              },
+            },
+          },
+        },
+      },
+    });
   }
 }
