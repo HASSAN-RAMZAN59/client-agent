@@ -1,0 +1,310 @@
+// ==============================================================================
+// PRISMA SCHEMA - LOCAL SQLITE DATABASE (PHASE 4 EXPANDED)
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------------------
+// 1. Business Model
+// Represents target local businesses discovered through public directories or listings.
+// ------------------------------------------------------------------------------
+model Business {
+  id          String   @id @default(uuid())
+  name        String
+  category    String   // Niche / industry (e.g. "Dental", "HVAC", "Law Firm")
+  city        String
+  country     String   @default("US")
+  address     String?
+  phone       String?
+  website     String?
+  source      String   // Discovery source identifier (e.g. "osm_overpass", "public_search")
+  sourceUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  audits      WebsiteAudit[]
+  lead        Lead?
+  contacts    Contact[]
+
+  // Deduplication & search indexes
+  @@unique([name, city, category], name: "unique_business_per_locality")
+  @@index([website])
+  @@index([phone])
+  @@index([city, category])
+  @@index([createdAt])
+  @@map("businesses")
+}
+
+// ------------------------------------------------------------------------------
+// 2. WebsiteAudit Model
+// Stores structured technical, performance, UX, SEO, and accessibility intelligence.
+// ------------------------------------------------------------------------------
+model WebsiteAudit {
+  id                   String    @id @default(uuid())
+  businessId           String
+  website              String
+  finalUrl             String?
+  status               String    @default("PENDING") // AUDITED, PARTIAL, BLOCKED, TIMEOUT, NO_WEBSITE, ERROR
+  confidence           String    @default("MEDIUM")  // HIGH, MEDIUM, LOW
+  score                Float     @default(0.0)       // 0.0 to 100.0 scale (Website Quality Score)
+
+  // Category breakdown scores (0.0 - 100.0)
+  technicalScore       Float?
+  mobileScore          Float?
+  performanceScore     Float?
+  seoScore             Float?
+  accessibilityScore   Float?
+  uxScore              Float?
+  contentScore         Float?
+
+  // High-level opportunity signals & app potential
+  opportunityFlags     String?   // JSON string array of OpportunityFlag
+  mobileAppOpportunity String?   // HIGH, MEDIUM, LOW
+  mobileAppReasoning   String?   // JSON string array of reasons
+  findings             String?   // JSON string array of structured AuditFinding
+
+  pageCount            Int?      @default(1)
+  mobileResponsive     Boolean?
+  sslValid             Boolean?
+  hasContactForm       Boolean?
+  loadTimeMs           Int?
+  issuesJson           String?   // Backward-compatible JSON string
+  auditedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relationships
+  business             Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+  @@index([score])
+  @@map("website_audits")
+}
+
+// ------------------------------------------------------------------------------
+// 3. Lead Model
+// Represents qualified business opportunities scored for outreach.
+// ------------------------------------------------------------------------------
+model Lead {
+  id                         String    @id @default(uuid())
+  businessId                 String    @unique
+  leadOpportunityScore       Float     @default(0.0)      // Main Lead Opportunity Score (0-100)
+  overallScore               Float     @default(0.0)      // Backward-compatible mirror of leadOpportunityScore
+  classification             String    @default("WARM")   // HOT, WARM, COLD, DISQUALIFIED
+  priority                   String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  priorityRank               Int       @default(3)        // 1 (Highest) to 5 (Lowest)
+  confidenceLevel            String    @default("MEDIUM") // HIGH, MEDIUM, LOW
+
+  // Multi-Factor Sub-Scores (0-100)
+  websiteOpportunityScore    Float     @default(0.0)      // 30% weight: Need for website redesign/build
+  commercialPotentialScore   Float     @default(0.0)      // 20% weight: Value of client niche & business model
+  contactabilityScore        Float     @default(0.0)      // 15% weight: Email, phone, address, form availability
+  websiteProblemScore        Float     @default(0.0)      // 15% weight: Severity of technical/UX failure
+  mobileAppOpportunityScore  Float     @default(0.0)      // 10% weight: Mobile booking/ordering/loyalty potential
+  dataConfidenceScore        Float     @default(0.0)      // 10% weight: Provenance & data completeness
+
+  // Phase 5 Contact Discovery & Outreach Enrichment
+  primaryContactType         String?   // EMAIL, PHONE, CONTACT_FORM, NONE
+  primaryContactValue        String?
+  contactQualityScore        Float?
+  contactDiscoveryStatus     String?   // VERIFIED_PUBLIC, PUBLIC_UNVERIFIED, NONE_FOUND, INVALID, BLOCKED
+  contactDiscoverySource     String?   // OFFICIAL_WEBSITE, PUBLIC_LISTING, PUBLIC_SEARCH, OTHER_PUBLIC_SOURCE
+  contactDiscoveryConfidence String?   // HIGH, MEDIUM, LOW
+
+  recommendedService         String    @default("WEBSITE_IMPROVEMENT") // WEBSITE_REBUILD, WEBSITE_IMPROVEMENT, MOBILE_OPTIMIZATION, MOBILE_APP, SEO_IMPROVEMENT, MAINTENANCE, NO_CLEAR_SERVICE_FIT
+  topOpportunitySignals      String?   // JSON array of OpportunityFlag
+  topProblems                String?   // JSON array of problem strings
+  salesAngle                 String?   // JSON object { problem, opportunity, recommendedService, reason }
+  reasoning                  String?   // JSON array of scoring explanations
+  status                     String    @default("NEW")    // NEW, QUALIFIED, DISQUALIFIED, CONTACTED, RESPONDED, CLOSED
+  notes                      String?
+  scoredAt                   DateTime  @default(now())
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  // Relationships
+  business                   Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  outreach                   Outreach[]
+
+  @@index([businessId])
+  @@index([priorityRank])
+  @@index([classification])
+  @@index([leadOpportunityScore])
+  @@map("leads")
+}
+
+// ------------------------------------------------------------------------------
+// 4. Contact Model (Phase 5 Expanded)
+// Stores public contact details associated with a business.
+// ------------------------------------------------------------------------------
+model Contact {
+  id              String    @id @default(uuid())
+  businessId      String
+  email           String?   // Backward-compatible
+  value           String    @default("") // Normalized value (email, E.164 phone, contact form URL)
+  type            String    @default("EMAIL") // EMAIL, PHONE, CONTACT_FORM
+  classification  String    @default("BUSINESS_GENERIC") // BUSINESS_GENERIC, BUSINESS_DEPARTMENT, BUSINESS_NAMED, UNKNOWN
+  contactName     String?
+  role            String?   // e.g. "Owner", "Doctor", "Office Manager", "General"
+  rawPhone        String?
+  normalizedPhone String?
+  source          String    @default("OFFICIAL_WEBSITE")
+  sourceUrl       String?
+  sourceType      String    @default("OFFICIAL_WEBSITE") // OFFICIAL_WEBSITE, PUBLIC_LISTING, PUBLIC_SEARCH, OTHER_PUBLIC_SOURCE
+  confidence      String    @default("HIGH") // HIGH, MEDIUM, LOW
+  qualityScore    Float     @default(0.0)    // 0 to 100
+  status          String    @default("VERIFIED_PUBLIC") // VERIFIED_PUBLIC, PUBLIC_UNVERIFIED, NONE_FOUND, INVALID, BLOCKED
+  isVerified      Boolean   @default(false)
+  isPublic        Boolean   @default(true)
+  discoveredAt    DateTime  @default(now())
+  lastCheckedAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relationships
+  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  // Prevent duplicate contact value per business and type
+  @@unique([businessId, type, value], name: "unique_contact_value_per_business")
+  @@index([email])
+  @@index([value])
+  @@index([type])
+  @@index([status])
+  @@index([businessId])
+  @@map("contacts")
+}
+
+// ------------------------------------------------------------------------------
+// 5. Outreach Model (Phase 6.5 Hardened Lifecycle)
+// Tracks personalized message drafts prepared for qualified leads.
+// ------------------------------------------------------------------------------
+model Outreach {
+  id                   String      @id @default(uuid())
+  leadId               String
+  channel              String      @default("EMAIL") // EMAIL, LINKEDIN, CONTACT_FORM
+  variant              String      @default("VARIANT_B_STANDARD") // VARIANT_A_SHORT, VARIANT_B_STANDARD, VARIANT_C_AUDIT
+  subject              String?
+  subjectVariants      String?     // JSON array of 3 subject line options
+  body                 String
+  contentHash          String?     // Deterministic SHA-256 hash of normalized subject + body
+  personalizationScore Float       @default(0.0) // 0 to 100
+  qualityScore         Float       @default(0.0) // 0 to 100 Multi-factor quality score
+  qualityBand          String      @default("REVIEW_REQUIRED") // EXCELLENT, GOOD, REVIEW_REQUIRED, REJECTED
+  evidenceValid        Boolean     @default(true)
+  identityValid        Boolean     @default(true)
+  confidence           String      @default("HIGH") // HIGH, MEDIUM, LOW
+  provider             String      @default("RuleBasedPersonalizationProvider")
+  sourceEvidence       String?     // JSON array of audit & discovery evidence strings
+  salesAngle           String?     // JSON structured sales angle object
+  primaryContactValue  String?
+  primaryContactType   String?
+  qualityGuardWarnings String?     // JSON array of quality guard warning strings
+  qualityGuardPassed   Boolean     @default(true)
+  rejectionReason      String?     // Explanation if draft was rejected or review required
+  approvedAt           DateTime?   // Timestamp of explicit human approval
+  approvedBy           String?     // Identifier of human operator who approved
+  expiresAt            DateTime?   // Staleness timestamp
+  status               String      @default("DRAFT") // DRAFT, REVIEW_REQUIRED, APPROVED, READY_TO_SEND, REJECTED, SUPPRESSED, STALE, INVALID, EXPIRED, SENT, FAILED
+  sentAt               DateTime?
+  error                String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  // Relationships
+  lead                 Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  followUps            FollowUp[]
+  replies              Reply[]
+
+  // Deduplication & querying
+  @@unique([leadId, variant], name: "unique_lead_variant_draft")
+  @@index([leadId])
+  @@index([status])
+  @@index([variant])
+  @@index([contentHash])
+  @@index([qualityBand])
+  @@index([personalizationScore])
+  @@index([qualityScore])
+  @@index([expiresAt])
+  @@index([sentAt])
+  @@map("outreaches")
+}
+
+// ------------------------------------------------------------------------------
+// 6. FollowUp Model
+// Schedules and tracks automated follow-up sequences.
+// ------------------------------------------------------------------------------
+model FollowUp {
+  id             String    @id @default(uuid())
+  outreachId     String
+  sequenceNumber Int       @default(1)
+  scheduledAt    DateTime
+  status         String    @default("PENDING") // PENDING, SENT, CANCELLED, SKIPPED
+  sentAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relationships
+  outreach       Outreach  @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+
+  @@index([outreachId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("follow_ups")
+}
+
+// ------------------------------------------------------------------------------
+// 7. Reply Model
+// Records incoming responses and AI classification outcomes.
+// ------------------------------------------------------------------------------
+model Reply {
+  id             String    @id @default(uuid())
+  outreachId     String
+  senderEmail    String?
+  body           String?
+  classification String    @default("NEUTRAL") // POSITIVE, NEGATIVE, NOT_INTERESTED, WRONG_PERSON, OUT_OF_OFFICE, NEUTRAL
+  confidence     Float     @default(0.0)
+  intentCategory String?   // CALL_REQUEST, PRICING_QUESTION, AUDIT_REQUEST, UNSUBSCRIBE
+  rawPayload     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relationships
+  outreach       Outreach  @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+
+  @@index([outreachId])
+  @@index([classification])
+  @@index([createdAt])
+  @@map("replies")
+}
+
+// ------------------------------------------------------------------------------
+// 8. Suppression Model (Phase 6.5 Compliance & Anti-Spam Hardening)
+// Records persistent contact and business suppression entries.
+// ------------------------------------------------------------------------------
+model Suppression {
+  id          String   @id @default(uuid())
+  businessId  String?
+  targetValue String   // Email address, domain, phone number, or business name
+  targetType  String   // EMAIL, DOMAIN, PHONE, BUSINESS
+  reason      String   // USER_REQUESTED, UNSUBSCRIBED, DO_NOT_CONTACT, PREVIOUS_BOUNCE, INVALID_CONTACT, MANUAL_BLOCK, COMPLIANCE_REVIEW
+  notes       String?
+  createdBy   String   @default("HUMAN_OPERATOR") // HUMAN_OPERATOR, SYSTEM_BOUNCE, SYSTEM_COMPLIANCE
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([targetType, targetValue], name: "unique_suppression_target")
+  @@index([targetType])
+  @@index([targetValue])
+  @@index([businessId])
+  @@index([reason])
+  @@map("suppressions")
+}

@@ -1,0 +1,46 @@
+{
+  "name": "lead-gen-automation",
+  "version": "0.1.0",
+  "description": "Zero-cost client acquisition and lead generation automation system (Phase 1 Foundation)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "lead-gen": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli/index.js",
+    "cli": "tsx src/cli/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:studio": "prisma studio",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "lead-generation",
+    "client-acquisition",
+    "automation",
+    "prisma",
+    "sqlite",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "cheerio": "^1.2.0",
+    "commander": "^13.1.0",
+    "dotenv": "^16.4.7",
+    "playwright": "^1.62.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "prisma": "^6.4.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}
