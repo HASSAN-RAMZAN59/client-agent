@@ -60,6 +60,7 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
         classification: 'BUSINESS_GENERIC',
         status: 'VERIFIED_PUBLIC',
         isVerified: true,
+        sourceUrl: 'https://phase11validdental.com/contact',
       },
     });
 
@@ -140,7 +141,8 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
 
       const res = await validator.isLivePilotEligible(testOutreachId);
       expect(res.eligible).toBe(false);
-      expect(res.reasons).toContain('EMAIL_NOT_VERIFIED');
+      const hasEmailBlock = res.reasons.includes('EMAIL_NOT_VERIFIED') || res.reasons.includes('INVALID_EMAIL_CONTACT');
+      expect(hasEmailBlock).toBe(true);
     });
 
     it('5. guessed email must be BLOCKED by eligibility gate', async () => {

@@ -1888,52 +1888,70 @@ program
   .description('Preview controlled live pilot candidates and pre-send safety validation without sending')
   .option('-l, --limit <number>', 'Number of verified email leads to inspect (Max 3)', '3')
   .option('--campaign-id <id>', 'Target specific campaign ID')
+  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('--country <code>', 'Pilot country code (default: US)', 'US')
   .action(async (options) => {
     try {
       const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
+      const campaignId = options.campaignId || options.campaign;
+      const pilotCountry = options.country || 'US';
       const preview = await pilotExecutionService.previewPilot(
         parseInt(options.limit, 10) || 3,
-        options.campaignId
+        campaignId,
+        { pilotCountry }
       );
 
       console.log('\n========================================================================================================');
       console.log('                                  CONTROLLED LIVE PILOT PREVIEW');
+      console.log('========================================================================================================');
+      console.log(`  Country: ${pilotCountry}  |  Campaign: ${campaignId || 'ALL'}  |  Limit: ${parseInt(options.limit, 10) || 3}`);
       console.log('========================================================================================================\n');
 
       if (preview.candidates.length === 0) {
         console.log('No email candidates found in outreach queue.\n');
+        if (preview.invalidEmailRejected > 0 || preview.nonUSRejected > 0) {
+          console.log(`  Pre-filter rejections: ${preview.invalidEmailRejected} invalid email(s), ${preview.nonUSRejected} non-${pilotCountry} lead(s)\n`);
+        }
         return;
       }
 
       console.log(
         'Rank'.padEnd(6) +
-        'Business'.padEnd(24) +
+        'Business'.padEnd(22) +
+        'Location'.padEnd(16) +
         'Email'.padEnd(28) +
         'Score'.padEnd(8) +
-        'Class'.padEnd(8) +
-        'Approval'.padEnd(16) +
-        'Eligibility'.padEnd(14) +
+        'Quality'.padEnd(10) +
+        'SendState'.padEnd(12) +
+        'Approval'.padEnd(14) +
         'Blocking Reason'
       );
-      console.log(''.padEnd(120, '-'));
+      console.log(''.padEnd(140, '-'));
 
       for (let i = 0; i < preview.candidates.length; i++) {
         const c = preview.candidates[i]!;
-        const eligStr = c.eligible ? 'ELIGIBLE' : 'BLOCKED';
+        const locationStr = `${c.city || '?'}, ${c.country || '?'}`;
         console.log(
           `#${i + 1}`.padEnd(6) +
-          c.businessName.slice(0, 22).padEnd(24) +
+          c.businessName.slice(0, 20).padEnd(22) +
+          locationStr.slice(0, 14).padEnd(16) +
           c.recipientEmail.slice(0, 26).padEnd(28) +
           `${c.leadScore}/100`.padEnd(8) +
-          c.leadClass.padEnd(8) +
-          c.approvalStatus.slice(0, 14).padEnd(16) +
-          eligStr.padEnd(14) +
+          c.candidateQuality.padEnd(10) +
+          c.liveSendState.padEnd(12) +
+          c.approvalStatus.slice(0, 12).padEnd(14) +
           (c.blockingReason || 'None (Ready for Pilot)')
         );
+        if (c.provenanceWarning) {
+          console.log(''.padEnd(6) + `⚠ Provenance: ${c.provenanceWarning}`);
+        }
       }
 
       console.log('\n--------------------------------------------------------------------------------------------------------');
       console.log(`Eligible: ${preview.eligibleCount}  |  Blocked: ${preview.blockedCount}  |  Remaining Daily Capacity: ${preview.remainingDailyCapacity}/3  |  Network Sends: 0`);
+      if (preview.invalidEmailRejected > 0 || preview.nonUSRejected > 0 || preview.provenanceWarnings > 0) {
+        console.log(`Pre-filter: ${preview.invalidEmailRejected} invalid email(s) rejected  |  ${preview.nonUSRejected} non-${pilotCountry} rejected  |  ${preview.provenanceWarnings} provenance warning(s)`);
+      }
       console.log('--------------------------------------------------------------------------------------------------------\n');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1950,6 +1968,8 @@ program
   .option('--confirm', 'Explicit confirmation flag required for pilot execution', false)
   .option('--dry-run', 'Simulate delivery without real email dispatch', false)
   .option('--campaign-id <id>', 'Target specific campaign ID')
+  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('--country <code>', 'Pilot country code (default: US)', 'US')
   .action(async (options) => {
     try {
       const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
@@ -1957,7 +1977,8 @@ program
         limit: parseInt(options.limit, 10) || 3,
         confirm: options.confirm,
         dryRun: options.dryRun,
-        campaignId: options.campaignId,
+        campaignId: options.campaignId || options.campaign,
+        pilotCountry: options.country || 'US',
       });
 
       console.log('\n======================================================================');

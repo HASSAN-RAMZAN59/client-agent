@@ -9,6 +9,7 @@ import { config } from '../../../config/env.js';
 import { createLogger } from '../../../utils/logger.js';
 import { normalizeEmail } from '../../discovery/normalizer.js';
 import { DeliveryResult } from '../../../types/index.js';
+import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email-validator.js';
 
 export interface PilotExecutionParams {
   limit?: number;
@@ -18,6 +19,7 @@ export interface PilotExecutionParams {
   pilotRunId?: string;
   allowTestRecord?: boolean;
   includeTest?: boolean;
+  pilotCountry?: string;
 }
 
 export interface PilotCandidateSummary {
@@ -35,6 +37,11 @@ export interface PilotCandidateSummary {
   isSuppressed: boolean;
   isCooldownActive: boolean;
   hasHumanApproval: boolean;
+  candidateQuality: string;
+  liveSendState: string;
+  country?: string;
+  city?: string;
+  provenanceWarning?: string;
 }
 
 export interface PilotPreviewReport {
@@ -44,6 +51,9 @@ export interface PilotPreviewReport {
   blockedCount: number;
   networkSends: number;
   remainingDailyCapacity: number;
+  invalidEmailRejected: number;
+  nonUSRejected: number;
+  provenanceWarnings: number;
   safetyState: {
     dryRun: boolean;
     outreachEnabled: boolean;
@@ -103,15 +113,15 @@ export class PilotExecutionService {
   public async previewPilot(
     limit: number = 3,
     campaignId?: string,
-    options?: { includeTest?: boolean; allowTestRecord?: boolean }
+    options?: { includeTest?: boolean; allowTestRecord?: boolean; pilotCountry?: string }
   ): Promise<PilotPreviewReport> {
     const policy = safetyControls.getPolicy();
     const hardLimit = Math.min(limit, config.LIVE_PILOT_MAX_SENDS_PER_RUN, 3);
     const includeTest = options?.includeTest ?? false;
+    const pilotCountry = options?.pilotCountry;
 
     const where: any = {
       channel: 'EMAIL',
-      primaryContactValue: { contains: '@' },
       status: { in: ['DRAFT', 'REVIEW_REQUIRED', 'APPROVED', 'READY_TO_SEND'] },
     };
 
@@ -156,6 +166,18 @@ export class PilotExecutionService {
       };
     }
 
+    // US-only filter at the Prisma query level
+    if (pilotCountry) {
+      const normalizedCountry = normalizeCountryCode(pilotCountry);
+      where.lead = {
+        ...(where.lead || {}),
+        business: {
+          ...(where.lead?.business || {}),
+          country: normalizedCountry,
+        },
+      };
+    }
+
     const outreaches = await this.db.outreach.findMany({
       where,
       include: {
@@ -178,6 +200,9 @@ export class PilotExecutionService {
     const seenLeads = new Set<string>();
     let eligibleCount = 0;
     let blockedCount = 0;
+    let invalidEmailRejected = 0;
+    let nonUSRejected = 0;
+    let provenanceWarnings = 0;
 
     for (const o of outreaches) {
       if (seenLeads.has(o.leadId)) continue;
@@ -187,6 +212,36 @@ export class PilotExecutionService {
       const l = o.lead;
       const matchingContact = b?.contacts?.find((c) => c.type === 'EMAIL');
       const recipient = o.primaryContactValue || matchingContact?.value || '';
+
+      // Strict email validation — skip invalid emails entirely
+      const emailCheck = isStrictlyValidEmail(recipient);
+      if (!emailCheck.valid) {
+        invalidEmailRejected++;
+        this.log.warn(`[pilot-preview] Skipping invalid email contact: ${recipient} (${emailCheck.reason})`);
+        continue;
+      }
+
+      // Country check at candidate level (safety net for query-level filter)
+      if (pilotCountry) {
+        const target = normalizeCountryCode(pilotCountry);
+        const biz = normalizeCountryCode(b?.country);
+        if (biz && biz !== target) {
+          nonUSRejected++;
+          continue;
+        }
+      }
+
+      // Provenance warning check
+      let provenanceWarning: string | undefined;
+      if (matchingContact) {
+        if (!matchingContact.sourceUrl) {
+          provenanceWarning = 'EMAIL_SOURCE_NOT_VERIFIABLE';
+          provenanceWarnings++;
+        }
+      } else {
+        provenanceWarning = 'NO_MATCHING_CONTACT_RECORD';
+        provenanceWarnings++;
+      }
 
       let salesAngleText = 'Website improvement opportunity';
       if (l?.salesAngle) {
@@ -198,7 +253,24 @@ export class PilotExecutionService {
         }
       }
 
-      const eligibility = await this.validator.isLivePilotEligible(o.id, { checkEnvFlags: false });
+      const eligibility = await this.validator.isLivePilotEligible(o.id, {
+        checkEnvFlags: false,
+        pilotCountry,
+      });
+
+      // Determine separate quality vs send state
+      const qualityReasons = eligibility.reasons.filter(
+        (r) => !['KILL_SWITCH_ACTIVE', 'PILOT_DISABLED', 'OUTREACH_DISABLED', 'DRY_RUN_ACTIVE', 'DAILY_LIMIT_REACHED'].includes(r)
+      );
+      const candidateQuality = qualityReasons.length === 0 ? 'VALID' : 'INVALID';
+
+      // Check live env flags separately for send state
+      const envBlockers: string[] = [];
+      if (!config.LIVE_PILOT_ENABLED) envBlockers.push('PILOT_DISABLED');
+      if (!config.OUTREACH_ENABLED) envBlockers.push('OUTREACH_DISABLED');
+      if (config.DRY_RUN) envBlockers.push('DRY_RUN_ACTIVE');
+      if (safetyControls.isKillSwitchActive()) envBlockers.push('KILL_SWITCH_ACTIVE');
+      const liveSendState = envBlockers.length === 0 ? 'ENABLED' : 'BLOCKED';
 
       if (eligibility.eligible) {
         eligibleCount++;
@@ -221,6 +293,11 @@ export class PilotExecutionService {
         isSuppressed: eligibility.details.isSuppressed,
         isCooldownActive: eligibility.details.isCooldownActive,
         hasHumanApproval: eligibility.details.hasHumanApproval,
+        candidateQuality,
+        liveSendState,
+        country: b?.country || undefined,
+        city: b?.city || undefined,
+        provenanceWarning,
       });
     }
 
@@ -234,6 +311,9 @@ export class PilotExecutionService {
       blockedCount,
       networkSends: 0,
       remainingDailyCapacity,
+      invalidEmailRejected,
+      nonUSRejected,
+      provenanceWarnings,
       safetyState: {
         dryRun: policy.isDryRun,
         outreachEnabled: config.OUTREACH_ENABLED,
@@ -308,6 +388,7 @@ export class PilotExecutionService {
     const preview = await this.previewPilot(effectiveLimit, params.campaignId, {
       allowTestRecord: params.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
       includeTest: params.includeTest ?? params.allowTestRecord ?? false,
+      pilotCountry: params.pilotCountry,
     });
     const candidates = preview.candidates;
 

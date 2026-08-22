@@ -6,8 +6,7 @@ import { safetyControls } from '../../../config/safety.js';
 import { config } from '../../../config/env.js';
 import { PreSendValidationResult } from '../../../types/index.js';
 import { createLogger } from '../../../utils/logger.js';
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email-validator.js';
 
 const PROHIBITED_FEAR_PATTERNS = [
   /losing\s+(revenue|money|thousands|millions)/i,
@@ -24,6 +23,8 @@ export interface LivePilotEligibilityOptions {
   campaignId?: string;
   allowTestRecord?: boolean;
   enforceTestCheck?: boolean;
+  pilotCountry?: string;
+  requireStrictProvenance?: boolean;
 }
 
 export interface LivePilotEligibilityResult extends PreSendValidationResult {
@@ -200,7 +201,8 @@ export class PreSendValidator {
       lead?.primaryContactValue ||
       business?.contacts?.find((c) => c.type === 'EMAIL')?.value;
     const isEmailChannel = outreach.channel === 'EMAIL';
-    const validEmailFormat = Boolean(contactValue && EMAIL_REGEX.test(contactValue.trim()));
+    const emailValidation = isStrictlyValidEmail(contactValue);
+    const validEmailFormat = emailValidation.valid;
     const matchingContact = business?.contacts?.find(
       (c) => c.value?.toLowerCase() === contactValue?.toLowerCase()
     );
@@ -209,11 +211,42 @@ export class PreSendValidator {
     );
 
     if (!isEmailChannel || !validEmailFormat) {
-      reasons.push('EMAIL_NOT_VERIFIED');
+      if (!validEmailFormat && contactValue) {
+        reasons.push('INVALID_EMAIL_CONTACT');
+      } else {
+        reasons.push('EMAIL_NOT_VERIFIED');
+      }
     }
 
     if (isGuessed) {
       reasons.push('GUESSED_EMAIL', 'GUESSED_EMAIL_PROHIBITED');
+    }
+
+    // 5a. Strict Provenance Gate for Live Pilot
+    // LIVE EMAIL PILOT requires: VERIFIED_PUBLIC, exact sourceUrl present, valid discovery timestamp, not guessed/unverifiable
+    const requireProvenance = options.requireStrictProvenance ?? true;
+    if (requireProvenance && isEmailChannel) {
+      const hasMatchingContact = Boolean(matchingContact);
+      const isStatusVerifiedPublic = matchingContact?.status === 'VERIFIED_PUBLIC';
+      const hasValidSourceUrl = Boolean(
+        matchingContact?.sourceUrl &&
+        matchingContact.sourceUrl.trim().length > 0 &&
+        (matchingContact.sourceUrl.startsWith('http://') || matchingContact.sourceUrl.startsWith('https://'))
+      );
+      const hasVerificationTimestamp = Boolean(matchingContact?.discoveredAt || matchingContact?.createdAt);
+
+      if (!hasMatchingContact || !isStatusVerifiedPublic || !hasValidSourceUrl || !hasVerificationTimestamp) {
+        reasons.push('EMAIL_SOURCE_NOT_VERIFIABLE');
+      }
+    }
+
+    // 5b-pre. Pilot Country Gate (US-only first pilot)
+    if (options.pilotCountry) {
+      const targetCountry = normalizeCountryCode(options.pilotCountry);
+      const bizCountry = normalizeCountryCode(business?.country);
+      if (bizCountry && bizCountry !== targetCountry) {
+        reasons.push('PILOT_COUNTRY_MISMATCH');
+      }
     }
 
     // 5b. Location / Branch Mismatch Check
