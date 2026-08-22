@@ -26,10 +26,12 @@ model Business {
   website     String?
   source      String   // Discovery source identifier (e.g. "osm_overpass", "public_search")
   sourceUrl   String?
+  campaignId  String?  // Optional campaign association
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relationships
+  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   audits      WebsiteAudit[]
   lead        Lead?
   contacts    Contact[]
@@ -39,6 +41,7 @@ model Business {
   @@index([website])
   @@index([phone])
   @@index([city, category])
+  @@index([campaignId])
   @@index([createdAt])
   @@map("businesses")
 }
@@ -312,3 +315,34 @@ model Suppression {
   @@index([reason])
   @@map("suppressions")
 }
+
+// ------------------------------------------------------------------------------
+// 9. Campaign Model (Phase 9 Production Lead Gen & Conversion Workflow)
+// Defines campaign targeting, parameters, pacing targets, and tracking.
+// ------------------------------------------------------------------------------
+model Campaign {
+  id                        String      @id @default(uuid())
+  name                      String      @unique
+  country                   String      @default("US")
+  state                     String?
+  city                      String
+  niche                     String
+  targetBusinesses          Int         @default(100)
+  minLeadScore              Float       @default(60.0)
+  minContactQuality         Float       @default(0.0)
+  maxDiscoveryPerRun        Int         @default(25)
+  maxEmailsPerDay           Int         @default(20)
+  targetWebsiteOpportunity  Float?      @default(50.0)
+  preferredService          String      @default("WEBSITE_REBUILD")
+  status                    String      @default("ACTIVE") // ACTIVE, PAUSED, COMPLETED, ARCHIVED
+  createdAt                 DateTime    @default(now())
+  updatedAt                 DateTime    @updatedAt
+
+  // Relationships
+  businesses                Business[]
+
+  @@index([status])
+  @@index([country, city, niche])
+  @@map("campaigns")
+}
+

@@ -17,10 +17,10 @@ export interface SalesAngleInput {
 export function generateSalesAngle(input: SalesAngleInput): SalesAngle {
   if (input.hasNoWebsite || input.opportunityFlags.includes('NO_WEBSITE')) {
     return {
-      problem: `No online website presence for ${input.businessName}.`,
-      opportunity: `Build a modern, mobile-first website to capture local search traffic in the ${input.category} niche.`,
+      problem: `I couldn't identify an official website for ${input.businessName}.`,
+      opportunity: `Establish a modern, mobile-friendly website to provide direct service details and contact options in the ${input.category} niche.`,
       recommendedService: 'WEBSITE_REBUILD',
-      reason: 'Local competitors with web booking/presence capture search leads that could belong to this business.',
+      reason: 'Prospective customers searching online find no dedicated official portal for direct business hours and inquiries.',
     };
   }
 

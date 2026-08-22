@@ -143,7 +143,7 @@ describe('Phase 6: AI Personalization & Outreach Content Engine', () => {
       const result = await provider.generate(noWebContext);
       const allText = result.variants.map((v) => v.body).join('\n');
 
-      expect(allText).toContain("doesn't currently have");
+      expect(allText).toContain("couldn't identify an official website");
       expect(allText).not.toContain('Your website is outdated');
       expect(result.salesAngle.recommendedService).toBe('WEBSITE_REBUILD');
     });

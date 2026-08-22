@@ -1,8 +1,11 @@
 import * as cheerio from 'cheerio';
 import { DiscoverySource, DiscoverySourceType, SourceMetrics } from '../discovery-source.interface.js';
 import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus } from '../../../types/index.js';
-import { normalizeBusinessName, normalizeUrl, normalizePhone } from '../normalizer.js';
+import { normalizeBusinessName, normalizeUrl, normalizePhone, cleanSearchTitleToBusinessName } from '../normalizer.js';
 import { calculateOfficialWebsiteConfidence } from '../website-verifier.js';
+import { isExcludedDirectoryDomain } from '../excluded-domains.js';
+import { generateDiscoveryQueries } from '../query-generator.js';
+import { getMarketProfile } from '../../../config/markets.js';
 import { safetyControls, SafetyControls } from '../../../config/safety.js';
 import { safeSleep } from '../../../utils/sleeper.js';
 import { logger } from '../../../utils/logger.js';
@@ -63,9 +66,11 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
 
   private cleanTitleToBusinessName(title: string, niche: string, city: string): string {
     let clean = title.trim();
-    clean = clean.replace(/\s*[-–—|:]\s*(home|official site|welcome|reviews|facebook|yelp|instagram|linkedin|mapquest|yellowpages|bbb).*$/i, '');
+    // Remove common title suffixes and aggregator labels
+    clean = clean.replace(/\s*[-–—|:]\s*(home|official site|welcome|reviews|facebook|yelp|instagram|linkedin|mapquest|yellowpages|bbb|about us|contact us|online booking|get quote).*$/i, '');
     clean = clean.replace(new RegExp(`\\s*[-–—|:]\\s*${city}.*$`, 'i'), '');
     clean = clean.replace(new RegExp(`\\s*[-–—|:]\\s*${niche}.*$`, 'i'), '');
+    clean = clean.replace(/\s*\([^)]*\)$/, ''); // remove trailing parentheticals
     return normalizeBusinessName(clean);
   }
 
@@ -84,28 +89,6 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
       return rawHref;
     }
     return undefined;
-  }
-
-  private isDirectoryOrAggregator(urlStr: string): boolean {
-    const lower = urlStr.toLowerCase();
-    const directories = [
-      'yelp.com',
-      'yellowpages.com',
-      'mapquest.com',
-      'facebook.com',
-      'instagram.com',
-      'linkedin.com',
-      'tripadvisor.com',
-      'bbb.org',
-      'angi.com',
-      'thumbtack.com',
-      'healthgrades.com',
-      'zocdoc.com',
-      'wikipedia.org',
-      'duckduckgo.com',
-      'google.com',
-    ];
-    return directories.some((dir) => lower.includes(dir));
   }
 
   public async discover(query: BusinessDiscoveryQuery): Promise<DiscoveredBusinessInput[]> {
@@ -129,109 +112,166 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
 
     try {
       const limit = query.limit || 10;
-      const searchQuery = `"${query.niche}" "${query.city}" official website`;
-      this.log.info(`Searching public web for query: "${searchQuery}"`);
+      const market = getMarketProfile(query.country);
 
-      const endpoint = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`;
-      this.metrics.requestsCount++;
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-        },
-        body: `q=${encodeURIComponent(searchQuery)}&b=`,
-        signal: AbortSignal.timeout(12000),
+      // Generate structured query variants
+      const queryVariants = generateDiscoveryQueries({
+        niche: query.niche,
+        city: query.city,
+        country: query.country,
+        state: query.state,
+        maxQueries: query.maxQueries || policy.maxDiscoveryQueriesPerRun,
       });
 
-      if (response.status === 429) {
-        this.markBlocked('Public Search HTTP 429 Rate Limited', 'RATE_LIMITED');
-        this.metrics.failedCount++;
-        return [];
-      }
+      const discoveredResults: DiscoveredBusinessInput[] = [];
+      const seenWebsites = new Set<string>();
+      const seenNames = new Set<string>();
 
-      if (response.status === 403) {
-        this.markBlocked('Public Search HTTP 403 Forbidden', 'BLOCKED');
-        this.metrics.failedCount++;
-        return [];
-      }
+      for (const variant of queryVariants) {
+        if (discoveredResults.length >= limit) break;
+        if (this.metrics.requestsCount >= sourceBudget) break;
+        if (!this.isAvailable()) break;
 
-      if (!response.ok) {
-        this.log.warn(`Public Search returned HTTP status ${response.status}`);
-        this.metrics.failedCount++;
-        this.status = 'ERROR';
-        return [];
-      }
+        this.log.info(`Searching public web [Variant: ${variant.templateType}]: "${variant.query}"`);
+        this.metrics.requestsCount++;
 
-      const html = await response.text();
-      // Check for challenge or captcha in html without attempting to bypass
-      if (html.toLowerCase().includes('anomaly') || html.toLowerCase().includes('captcha') || html.toLowerCase().includes('bot check')) {
-        this.markBlocked('Public Search anti-bot challenge encountered. Skipping source.', 'BLOCKED');
-        this.metrics.failedCount++;
-        return [];
-      }
+        const endpoint = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(variant.query)}`;
 
-      const $ = cheerio.load(html);
-      const results: DiscoveredBusinessInput[] = [];
-      const now = new Date();
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.5',
+            },
+            body: `q=${encodeURIComponent(variant.query)}&b=`,
+            signal: AbortSignal.timeout(12000),
+          });
 
-      $('.result').each((_, elem) => {
-        if (results.length >= limit) return;
+          if (response.status === 429) {
+            this.markBlocked('Public Search HTTP 429 Rate Limited', 'RATE_LIMITED');
+            this.metrics.failedCount++;
+            break;
+          }
 
-        const titleElem = $(elem).find('.result__title a');
-        const snippetElem = $(elem).find('.result__snippet');
+          if (response.status === 403) {
+            this.markBlocked('Public Search HTTP 403 Forbidden', 'BLOCKED');
+            this.metrics.failedCount++;
+            break;
+          }
 
-        const rawTitle = titleElem.text().trim();
-        const rawHref = titleElem.attr('href') || '';
-        const snippet = snippetElem.text().trim();
+          if (!response.ok) {
+            this.log.warn(`Public Search returned HTTP status ${response.status}`);
+            this.metrics.failedCount++;
+            continue;
+          }
 
-        if (!rawTitle || !rawHref) return;
+          const html = await response.text();
+          if (
+            html.toLowerCase().includes('anomaly') ||
+            html.toLowerCase().includes('captcha') ||
+            html.toLowerCase().includes('bot check')
+          ) {
+            this.markBlocked('Public Search anti-bot challenge encountered. Skipping source.', 'BLOCKED');
+            this.metrics.failedCount++;
+            break;
+          }
 
-        const targetUrl = this.extractOutboundUrl(rawHref);
-        if (!targetUrl || this.isDirectoryOrAggregator(targetUrl)) {
-          return;
+          const $ = cheerio.load(html);
+          const now = new Date();
+
+          $('.result').each((_, elem) => {
+            if (discoveredResults.length >= limit) return;
+
+            const titleElem = $(elem).find('.result__title a');
+            const snippetElem = $(elem).find('.result__snippet');
+
+            const rawTitle = titleElem.text().trim();
+            const rawHref = titleElem.attr('href') || '';
+            const snippet = snippetElem.text().trim();
+
+            if (!rawTitle || !rawHref) return;
+
+            const targetUrl = this.extractOutboundUrl(rawHref);
+            if (!targetUrl || isExcludedDirectoryDomain(targetUrl, query.excludedDomains)) {
+              return;
+            }
+
+            const normalizedWebsite = normalizeUrl(targetUrl);
+            const titleCleanResult = cleanSearchTitleToBusinessName(rawTitle, {
+              city: query.city,
+              state: query.state,
+              niche: query.niche,
+              country: market.countryName,
+            });
+            const businessName = titleCleanResult.cleanedName;
+
+            if (!businessName || businessName.length < 3) return;
+
+            // In-memory dedup within DDG queries
+            const nameKey = businessName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (seenNames.has(nameKey) || (normalizedWebsite && seenWebsites.has(normalizedWebsite))) {
+              return;
+            }
+
+            seenNames.add(nameKey);
+            if (normalizedWebsite) seenWebsites.add(normalizedWebsite);
+
+            // Extract phone pattern using market regex
+            const phoneMatch = snippet.match(market.phonePattern);
+            const phone = phoneMatch ? normalizePhone(phoneMatch[0]) : undefined;
+
+            const confidence = normalizedWebsite
+              ? calculateOfficialWebsiteConfidence(businessName, normalizedWebsite)
+              : 'UNKNOWN';
+
+            discoveredResults.push({
+              name: businessName,
+              rawName: rawTitle,
+              category: query.niche,
+              city: query.city,
+              state: query.state,
+              country: market.countryName,
+              marketCode: market.countryCode,
+              postalCode: query.postalCode,
+              website: normalizedWebsite,
+              phone,
+              phoneClassification: phone ? 'BUSINESS_PHONE' : undefined,
+              source: 'public_search',
+              sourceUrl: targetUrl,
+              queryVariant: variant.query,
+              contactChannel: normalizedWebsite ? 'WEBSITE_LEAD' : (phone ? 'PHONE_ONLY_LEAD' : 'NO_CONTACT_LEAD'),
+              websiteSource: normalizedWebsite ? 'public_search' : undefined,
+              phoneSource: phone ? 'public_search' : undefined,
+              officialWebsiteConfidence: confidence,
+              nameConfidence: titleCleanResult.confidence,
+              discoveredAt: now,
+            });
+          });
+
+          this.metrics.successfulCount++;
+
+          if (discoveredResults.length >= limit || (discoveredResults.length > 0 && !query.maxQueries)) {
+            break;
+          }
+
+          await safeSleep(policy.discoveryRequestDelayMs || policy.sourceMinDelayMs);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.log.warn(`Public search query "${variant.query}" failed: ${msg}`);
+          this.metrics.failedCount++;
         }
+      }
 
-        const normalizedWebsite = normalizeUrl(targetUrl);
-        const businessName = this.cleanTitleToBusinessName(rawTitle, query.niche, query.city);
+      this.metrics.itemsDiscovered += discoveredResults.length;
+      this.log.info(`Public Search discovered total ${discoveredResults.length} valid business candidates.`);
 
-        if (!businessName || businessName.length < 3) return;
-
-        const phoneMatch = snippet.match(/(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-        const phone = phoneMatch ? normalizePhone(phoneMatch[0]) : undefined;
-
-        const confidence = normalizedWebsite
-          ? calculateOfficialWebsiteConfidence(businessName, normalizedWebsite)
-          : 'UNKNOWN';
-
-        results.push({
-          name: businessName,
-          category: query.niche,
-          city: query.city,
-          country: query.country || 'USA',
-          website: normalizedWebsite,
-          phone,
-          source: 'public_search',
-          sourceUrl: targetUrl,
-          websiteSource: normalizedWebsite ? 'public_search' : undefined,
-          phoneSource: phone ? 'public_search' : undefined,
-          officialWebsiteConfidence: confidence,
-          discoveredAt: now,
-        });
-      });
-
-      this.metrics.successfulCount++;
-      this.metrics.itemsDiscovered += results.length;
-      this.log.info(`Public Search discovered ${results.length} valid business candidates.`);
-
-      await safeSleep(policy.sourceMinDelayMs);
-      return results;
+      return discoveredResults;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.log.warn(`Public Search request failed: ${msg}`);
+      this.log.warn(`Public Search process failed: ${msg}`);
       this.metrics.failedCount++;
       this.status = 'ERROR';
       return [];

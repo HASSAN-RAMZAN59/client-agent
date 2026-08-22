@@ -1373,31 +1373,576 @@ program
   });
 
 // ------------------------------------------------------------------------------
-// Phase 1 End-to-End Demo Command
+// Phase 8: Discovery Analytics & Market Yield Reporting
 // ------------------------------------------------------------------------------
 program
-  .command('run-demo')
-  .description('Execute Phase 1 complete modular pipeline simulation (Dry-Run mode)')
-  .option('-n, --niche <niche>', 'Target niche', 'Dentist')
-  .option('-c, --city <city>', 'Target city', 'Austin')
+  .command('discovery-stats')
+  .description('Display detailed discovery yield, website availability, and lead qualification statistics')
+  .option('--country <country>', 'Filter by country (e.g. US, Canada, UK, Australia, Pakistan)')
+  .option('--city <city>', 'Filter by city (e.g. Dallas, London, Toronto, Lahore)')
+  .option('-n, --niche <niche>', 'Filter by commercial niche (e.g. Dentist, HVAC, Restaurant)')
   .action(async (options) => {
     try {
-      console.log('\n--- Executing Phase 1 Modular Pipeline Simulation ---\n');
-      const result = await leadPipelineService.executePipelineDemo({
-        niche: options.niche,
+      const { discoveryAnalyticsService } = await import('../modules/discovery/discovery-analytics.service.js');
+      const stats = await discoveryAnalyticsService.getDiscoveryStats({
+        country: options.country,
         city: options.city,
-        limit: 3,
+        niche: options.niche,
       });
 
-      console.log('\nExecution Summary:');
-      console.log(`• Discovered Businesses : ${result.discovered}`);
-      console.log(`• Audited Websites      : ${result.audited}`);
-      console.log(`• Leads Evaluated       : ${result.leadsGenerated}`);
-      console.log(`• Public Contacts Found : ${result.contactsFound}`);
-      console.log(`• Email Drafts Created  : ${result.draftsCreated}`);
-      console.log(`• Dry-Run Dispatches    : ${result.emailsSimulated} (Simulated only - no emails sent)\n`);
-    } catch (err) {
-      logger.error('Pipeline demo encountered an error', err);
+      console.log('\n======================================================================');
+      console.log('         DISCOVERY COVERAGE & COMMERCIAL YIELD ANALYTICS');
+      console.log('======================================================================\n');
+
+      console.log(`• Total Discovered Businesses : ${stats.totalDiscovered}`);
+      console.log(`• Businesses with Websites    : ${stats.withWebsite} (${stats.websiteAvailabilityRate}% website rate)`);
+      console.log(`• Businesses without Websites : ${stats.noWebsite}`);
+      console.log(`• Total Leads Scored          : ${stats.totalLeadsScored}`);
+      console.log(`  - HOT Leads (Rank 1 / Urgent): ${stats.hotLeads}`);
+      console.log(`  - WARM Leads (Rank 3-4)     : ${stats.warmLeads}`);
+      console.log(`  - COLD / Disqualified Leads : ${stats.coldLeads + stats.disqualifiedLeads}`);
+      console.log(`• Commercial Qualification Rate : ${stats.qualificationRate}%`);
+      console.log(`• Total Contacts Extracted    : ${stats.totalContactsDiscovered}`);
+      console.log(`  - Direct Email Contacts     : ${stats.emailContacts}`);
+      console.log(`  - Direct Phone Numbers      : ${stats.phoneContacts}`);
+      console.log(`  - Contact Form Webpages     : ${stats.formContacts}`);
+      console.log(`• Contact Availability Rate    : ${stats.contactAvailabilityRate}%\n`);
+
+      if (stats.marketBreakdown.length > 0) {
+        console.log('----------------------------------------------------------------------');
+        console.log('MARKET & NICHE BREAKDOWN:');
+        console.log('----------------------------------------------------------------------');
+        console.log(
+          'Market / City'.padEnd(25) +
+          'Niche'.padEnd(16) +
+          'Total'.padEnd(8) +
+          'Web%'.padEnd(8) +
+          'HOT'.padEnd(6) +
+          'WARM'.padEnd(6) +
+          'Phone'.padEnd(8) +
+          'Email'.padEnd(8) +
+          'Qual%'
+        );
+        console.log(''.padEnd(95, '-'));
+
+        for (const m of stats.marketBreakdown) {
+          console.log(
+            m.market.slice(0, 23).padEnd(25) +
+            m.niche.slice(0, 14).padEnd(16) +
+            String(m.totalDiscovered).padEnd(8) +
+            `${m.websiteRate}%`.padEnd(8) +
+            String(m.hotLeads).padEnd(6) +
+            String(m.warmLeads).padEnd(6) +
+            String(m.phoneAvailable).padEnd(8) +
+            String(m.emailsFound).padEnd(8) +
+            `${m.qualificationRate}%`
+          );
+        }
+        console.log('\n');
+      } else {
+        console.log('No market discovery records found matching the filter criteria.\n');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to compute discovery analytics', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+// ------------------------------------------------------------------------------
+// Phase 8: Market Batch Discovery Command
+// ------------------------------------------------------------------------------
+program
+  .command('discover-market')
+  .description('Run controlled multi-niche discovery across target city and market')
+  .requiredOption('-c, --city <city>', 'Target city (e.g. Dallas, Toronto, London, Sydney, Lahore)')
+  .option('--country <country>', 'Target country or code (US, CA, GB, AU, PK)', 'US')
+  .option('--state <state>', 'State or Province (e.g. TX, ON, NSW, Punjab)')
+  .option('-n, --niche <niches>', 'Comma-separated list of niches (e.g. dentist,hvac,plumber)', 'dentist')
+  .option('-l, --limit <number>', 'Prospects per niche (clamped to MAX_ITEMS_PER_RUN)', '5')
+  .option('--mock', 'Run in mock mode for offline testing', false)
+  .action(async (options) => {
+    try {
+      const { getMarketProfile } = await import('../config/markets.js');
+      const { BusinessRepository } = await import('../database/repositories/business.repository.js');
+      const { getPrismaClient } = await import('../database/client.js');
+
+      const market = getMarketProfile(options.country);
+      const niches = options.niche.split(',').map((s: string) => s.trim()).filter(Boolean);
+      const requestedLimit = parseInt(options.limit, 10) || 5;
+
+      const policy = safetyControls.getPolicy();
+      const clampedLimit = Math.min(requestedLimit, policy.maxItemsPerRun);
+
+      console.log('\n======================================================================');
+      console.log('            PHASE 8 MULTI-NICHE MARKET DISCOVERY');
+      console.log('======================================================================\n');
+      console.log(`• Target Market : ${options.city}${options.state ? `, ${options.state}` : ''}, ${market.countryName} (${market.countryCode})`);
+      console.log(`• Target Niches : ${niches.join(', ')}`);
+      console.log(`• Limit / Niche : ${clampedLimit} (Safety Clamped to MAX_ITEMS_PER_RUN: ${policy.maxItemsPerRun})`);
+      console.log(`• Mode          : ${options.mock ? 'OFFLINE MOCK' : 'LIVE PUBLIC DISCOVERY'}\n`);
+
+      const db = getPrismaClient();
+      const businessRepo = new BusinessRepository(db);
+      const provider = options.mock
+        ? new MockBusinessDiscoveryProvider()
+        : new WebSearchDiscoveryProvider();
+
+      let totalDiscoveredBatch = 0;
+      let totalNewBatch = 0;
+      let totalDupesBatch = 0;
+
+      for (const niche of niches) {
+        console.log(`>>> Discovering: "${niche}" in ${options.city}, ${market.countryName}...`);
+        const summary = await (provider as WebSearchDiscoveryProvider).discoverDetailed({
+          niche,
+          city: options.city,
+          country: market.countryCode,
+          state: options.state,
+          limit: clampedLimit,
+        });
+
+        let newForNiche = 0;
+        let dupForNiche = 0;
+
+        for (const item of summary.results) {
+          const { isNew } = await businessRepo.upsertDiscoveredBusiness(item, item.reachability);
+          if (isNew) newForNiche++;
+          else dupForNiche++;
+        }
+
+        totalDiscoveredBatch += summary.results.length;
+        totalNewBatch += newForNiche;
+        totalDupesBatch += dupForNiche;
+
+        console.log(`    Found ${summary.results.length} businesses (${newForNiche} new, ${dupForNiche} existing). Websites: ${summary.websitesFound}, No-Web: ${summary.noWebsites}\n`);
+      }
+
+      console.log('======================================================================');
+      console.log('BATCH DISCOVERY COMPLETE:');
+      console.log(`• Total Discovered  : ${totalDiscoveredBatch}`);
+      console.log(`• New Registered    : ${totalNewBatch}`);
+      console.log(`• Deduplicated      : ${totalDupesBatch}`);
+      console.log('======================================================================\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Batch market discovery failed', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+// ------------------------------------------------------------------------------
+// Phase 9: Campaign Management & Conversion Workflow Commands
+// ------------------------------------------------------------------------------
+program
+  .command('campaign-create')
+  .description('Create a new target client acquisition campaign')
+  .requiredOption('--name <name>', 'Campaign name (e.g. "Dallas Dentists")')
+  .option('--country <country>', 'Country code (US, CA, GB, AU, PK)', 'US')
+  .option('--state <state>', 'State / Province (e.g. TX, ON, NSW)')
+  .requiredOption('-c, --city <city>', 'City name (e.g. Dallas, Toronto, London)')
+  .requiredOption('-n, --niche <niche>', 'Target commercial niche (e.g. Dentist, HVAC, Plumber)')
+  .option('--target <number>', 'Target qualified businesses goal', '100')
+  .option('--min-score <score>', 'Minimum lead score threshold', '60')
+  .option('--preferred-service <service>', 'Preferred service angle', 'WEBSITE_REBUILD')
+  .option('--max-discovery <max>', 'Maximum businesses to discover per run', '25')
+  .option('--max-emails <max>', 'Maximum emails per day', '20')
+  .action(async (options) => {
+    try {
+      const { campaignService } = await import('../modules/campaigns/campaign.service.js');
+      const campaign = await campaignService.createCampaign({
+        name: options.name,
+        country: options.country,
+        state: options.state,
+        city: options.city,
+        niche: options.niche,
+        targetBusinesses: parseInt(options.target, 10) || 100,
+        minLeadScore: parseFloat(options.minScore) || 60,
+        preferredService: options.preferredService,
+        maxDiscoveryPerRun: parseInt(options.maxDiscovery, 10) || 25,
+        maxEmailsPerDay: parseInt(options.maxEmails, 10) || 20,
+      });
+
+      console.log('\n======================================================================');
+      console.log('              CAMPAIGN CREATED SUCCESSFULLY');
+      console.log('======================================================================\n');
+      console.log(`• Campaign ID       : ${campaign.id}`);
+      console.log(`• Name              : ${campaign.name}`);
+      console.log(`• Market            : ${campaign.city}${campaign.state ? `, ${campaign.state}` : ''}, ${campaign.country}`);
+      console.log(`• Niche             : ${campaign.niche}`);
+      console.log(`• Target Goal       : ${campaign.targetBusinesses} businesses`);
+      console.log(`• Min Lead Score    : ${campaign.minLeadScore}/100`);
+      console.log(`• Preferred Service : ${campaign.preferredService}`);
+      console.log(`• Run Discovery Cap : ${campaign.maxDiscoveryPerRun} per run`);
+      console.log(`• Daily Email Cap   : ${campaign.maxEmailsPerDay} per day\n`);
+      console.log(`To run this campaign, execute:`);
+      console.log(`npm run cli -- campaign-run ${campaign.id}\n`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to create campaign', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('campaign-list')
+  .description('List all active and configured acquisition campaigns')
+  .action(async () => {
+    try {
+      const { campaignService } = await import('../modules/campaigns/campaign.service.js');
+      const list = await campaignService.listCampaigns();
+
+      console.log('\n======================================================================');
+      console.log('                    CLIENT ACQUISITION CAMPAIGNS');
+      console.log('======================================================================\n');
+
+      if (list.length === 0) {
+        console.log('No campaigns configured yet. Create one with `npm run cli -- campaign-create`.\n');
+        return;
+      }
+
+      console.log(
+        'ID'.padEnd(38) +
+        'Name'.padEnd(25) +
+        'Market'.padEnd(20) +
+        'Niche'.padEnd(16) +
+        'Target'.padEnd(8) +
+        'Status'
+      );
+      console.log(''.padEnd(115, '-'));
+
+      for (const c of list) {
+        console.log(
+          c.id.padEnd(38) +
+          c.name.slice(0, 23).padEnd(25) +
+          `${c.city}, ${c.country}`.slice(0, 18).padEnd(20) +
+          c.niche.slice(0, 14).padEnd(16) +
+          String(c.targetBusinesses).padEnd(8) +
+          c.status
+        );
+      }
+      console.log('\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to list campaigns', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('campaign-run')
+  .description('Execute isolated end-to-end pipeline for a specific campaign')
+  .argument('<campaignId>', 'Target Campaign ID or Name')
+  .option('--mock', 'Run with offline mock provider', false)
+  .option('-l, --limit <number>', 'Override max items for this run')
+  .action(async (campaignId, options) => {
+    try {
+      const { campaignService } = await import('../modules/campaigns/campaign.service.js');
+      let targetId = campaignId;
+
+      // If user passed a campaign name instead of UUID
+      if (!campaignId.includes('-')) {
+        const list = await campaignService.listCampaigns();
+        const found = list.find((c) => c.name.toLowerCase() === campaignId.toLowerCase() || c.id.startsWith(campaignId));
+        if (found) targetId = found.id;
+      }
+
+      console.log(`\n>>> Launching Campaign Run for ID "${targetId}"...\n`);
+      const result = await campaignService.runCampaignPipeline(targetId, {
+        mock: options.mock,
+        maxItems: options.limit ? parseInt(options.limit, 10) : undefined,
+      });
+
+      console.log('\n======================================================================');
+      console.log('                  CAMPAIGN RUN EXECUTION SUMMARY');
+      console.log('======================================================================\n');
+      console.log(`• Campaign Name       : ${result.campaignName}`);
+      console.log(`• Execution Duration  : ${(result.durationMs / 1000).toFixed(1)}s`);
+      console.log(`• Discovered Raw      : ${result.discovered} (${result.newBusinesses} new registered)`);
+      console.log(`• Websites Audited    : ${result.audited}`);
+      console.log(`• Leads Evaluated     : ${result.leadsScored} (${result.qualifiedLeads} qualified)`);
+      console.log(`• Contacts Found      : ${result.contactsFound}`);
+      console.log(`• Outreach Drafts     : ${result.draftsGenerated}`);
+      console.log(`• Approved Status     : ${result.approvedCount}`);
+      console.log(`• Ready to Send       : ${result.readyToSendCount}`);
+      console.log(`• Sent Count (Dry-Run): ${result.sentCount}\n`);
+      console.log('View complete funnel and pacing report:');
+      console.log(`npm run cli -- campaign-report ${result.campaignId}\n`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Campaign run failed', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('campaign-report')
+  .description('Display detailed funnel drop-off analytics and target pacing for a campaign')
+  .argument('<campaignId>', 'Target Campaign ID')
+  .action(async (campaignId) => {
+    try {
+      const { campaignService } = await import('../modules/campaigns/campaign.service.js');
+      let targetId = campaignId;
+      if (!campaignId.includes('-')) {
+        const list = await campaignService.listCampaigns();
+        const found = list.find((c) => c.name.toLowerCase() === campaignId.toLowerCase() || c.id.startsWith(campaignId));
+        if (found) targetId = found.id;
+      }
+
+      const report = await campaignService.getCampaignReport(targetId);
+
+      console.log('\n======================================================================');
+      console.log(`      CAMPAIGN PERFORMANCE & FUNNEL REPORT: ${report.campaign.name.toUpperCase()}`);
+      console.log('======================================================================\n');
+
+      console.log(`• Market Target     : ${report.campaign.city}, ${report.campaign.country} - Niche: ${report.campaign.niche}`);
+      console.log(`• Target Goal       : ${report.campaign.targetBusinesses} qualified leads`);
+      console.log(`• Current Achieved  : ${report.pacing.achieved} leads (${report.pacing.remaining} remaining)`);
+      console.log(`• Pacing Run-Rate   : ${report.pacing.currentAvgPerDay} leads/day (Required: ${report.pacing.avgPerDayRequired}/day)`);
+      console.log(`• Target Completion : ${report.pacing.projectedCompletionDate ? report.pacing.projectedCompletionDate.toLocaleDateString() : 'N/A'} [${report.pacing.onTrack ? 'ON TRACK' : 'NEEDS ACCELERATION'}]\n`);
+
+      console.log('----------------------------------------------------------------------');
+      console.log('STAGE-BY-STAGE CONVERSION FUNNEL:');
+      console.log('----------------------------------------------------------------------');
+      console.log(
+        'Stage'.padEnd(22) +
+        'Count'.padEnd(10) +
+        'Overall%'.padEnd(12) +
+        'Conv%'.padEnd(10) +
+        'Drop-off (Lost)'
+      );
+      console.log(''.padEnd(80, '-'));
+
+      for (const st of report.funnel.stages) {
+        const dropText = st.dropOffCount > 0 ? `-${st.dropOffCount} (${st.dropOffPercentage}%)` : '-';
+        console.log(
+          st.stage.padEnd(22) +
+          String(st.count).padEnd(10) +
+          `${st.percentage}%`.padEnd(12) +
+          `${st.conversionFromPrevious}%`.padEnd(10) +
+          dropText
+        );
+      }
+
+      console.log('\n• Primary Pipeline Bottleneck:');
+      console.log(`  ${report.funnel.bottleneckStage} -> ${report.funnel.bottleneckReason}\n`);
+
+      if (report.funnel.contactability) {
+        const c = report.funnel.contactability;
+        console.log('----------------------------------------------------------------------');
+        console.log('CONTACTABILITY BREAKDOWN:');
+        console.log('----------------------------------------------------------------------');
+        console.log(`• Digital Contactable : ${c.digitalContactable} (${c.digitalContactRate}%) [Email: ${c.emailCount}, Form: ${c.formCount}]`);
+        console.log(`• Phone Contactable   : ${c.phoneContactable} (${c.phoneContactRate}%) [Business Phone: ${c.businessPhoneCount}]`);
+        console.log(`• Total Contactable   : ${c.totalContactable} (${c.totalContactRate}%)`);
+        console.log(`• No Contact Found    : ${c.noContact} (${c.noContactRate}%)\n`);
+      }
+
+      console.log('----------------------------------------------------------------------');
+      console.log('LEAD TEMPERATURE DISTRIBUTION:');
+      console.log('----------------------------------------------------------------------');
+      console.log(`• HOT Leads   : ${report.leadTemperatures.hot}`);
+      console.log(`• WARM Leads  : ${report.leadTemperatures.warm}`);
+      console.log(`• COLD Leads  : ${report.leadTemperatures.cold}`);
+      console.log(`• Disqualified: ${report.leadTemperatures.disqualified}\n`);
+
+      console.log('----------------------------------------------------------------------');
+      console.log('SERVICE OPPORTUNITY BREAKDOWN:');
+      console.log('----------------------------------------------------------------------');
+      for (const [svc, count] of Object.entries(report.serviceBreakdown)) {
+        console.log(`• ${svc.padEnd(25)}: ${count} prospects`);
+      }
+      console.log('\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to generate campaign report', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('lead-queue')
+  .description('Display prioritized commercial lead queue with multi-factor sorting')
+  .option('--country <country>', 'Filter by country')
+  .option('--state <state>', 'Filter by state / province')
+  .option('-c, --city <city>', 'Filter by city')
+  .option('-n, --niche <niche>', 'Filter by commercial niche')
+  .option('--hot-only', 'Show HOT leads only', false)
+  .option('-p, --phone-only', 'Show PHONE_ONLY leads only', false)
+  .option('--min-score <score>', 'Minimum lead score threshold')
+  .option('-l, --limit <number>', 'Number of leads to display', '15')
+  .action(async (options) => {
+    try {
+      const { queueService } = await import('../modules/campaigns/queue.service.js');
+      const items = await queueService.getLeadQueue({
+        country: options.country,
+        state: options.state,
+        city: options.city,
+        niche: options.niche,
+        hotOnly: options.hotOnly,
+        phoneOnly: options.phoneOnly,
+        minScore: options.minScore ? parseFloat(options.minScore) : undefined,
+        limit: parseInt(options.limit, 10) || 15,
+      });
+
+      console.log('\n========================================================================================================');
+      console.log('                                      PRIORITIZED LEAD QUEUE');
+      console.log('========================================================================================================\n');
+
+      if (items.length === 0) {
+        console.log('No leads found matching the filter criteria.\n');
+        return;
+      }
+
+      console.log(
+        'Rank'.padEnd(6) +
+        'Business Name'.padEnd(26) +
+        'Location'.padEnd(16) +
+        'Phone / Contact'.padEnd(20) +
+        'Score'.padEnd(8) +
+        'Class'.padEnd(8) +
+        'Channel'.padEnd(14) +
+        'Sales Angle'
+      );
+      console.log(''.padEnd(120, '-'));
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]!;
+        const contactStr = item.phone || item.contactValue || 'None';
+        console.log(
+          `#${i + 1}`.padEnd(6) +
+          item.businessName.slice(0, 24).padEnd(26) +
+          `${item.city}, ${item.country}`.slice(0, 14).padEnd(16) +
+          contactStr.slice(0, 18).padEnd(20) +
+          `${item.leadScore}/100`.padEnd(8) +
+          item.classification.padEnd(8) +
+          item.recommendedChannel.padEnd(14) +
+          (item.salesAngleText || item.recommendedService).slice(0, 32)
+        );
+      }
+      console.log('\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to load lead queue', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('review-queue')
+  .description('Display pending human review queue with draft previews and quality gates')
+  .option('-l, --limit <number>', 'Number of items to inspect', '10')
+  .action(async (options) => {
+    try {
+      const { queueService } = await import('../modules/campaigns/queue.service.js');
+      const items = await queueService.getReviewQueue(parseInt(options.limit, 10) || 10);
+
+      console.log('\n======================================================================');
+      console.log('                 HUMAN OUTREACH REVIEW QUEUE');
+      console.log('======================================================================\n');
+
+      if (items.length === 0) {
+        console.log('No pending outreach drafts requiring review.\n');
+        return;
+      }
+
+      for (const item of items) {
+        console.log(`┌── [DRAFT ID: ${item.outreachId}] ───────────────────────────────────────`);
+        console.log(`│ Business   : ${item.businessName} (${item.city}) - Website: ${item.website || 'None'}`);
+        console.log(`│ Score      : Lead: ${item.leadScore}/100 [${item.classification}] | Website Quality: ${item.websiteQualityScore}/100`);
+        console.log(`│ Recipient  : ${item.contactValue || 'None'} (${item.contactType})`);
+        console.log(`│ Service    : ${item.recommendedService}`);
+        console.log(`│ Sales Angle: ${item.salesAngle}`);
+        console.log(`│ Quality    : Score: ${item.qualityScore}/100 [Band: ${item.qualityBand}] | Evidence: ${item.evidenceValid ? 'VALID' : 'INVALID'} | Identity: ${item.identityValid ? 'MATCHED' : 'UNMATCHED'}`);
+        console.log(`│ Subject    : "${item.subject}"`);
+        console.log(`│ Message    :\n│   "${item.bodyPreview.replace(/\n/g, '\n│   ')}"`);
+        console.log(`│ Status     : ${item.status} | Suppression: ${item.isSuppressed ? 'SUPPRESSED' : 'CLEAR'} | Expired: ${item.isExpired ? 'EXPIRED' : 'ACTIVE'}`);
+        console.log(`└── To approve: npm run cli -- approve-draft ${item.outreachId}\n`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to load review queue', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('market-intelligence')
+  .description('Display cross-market yield and service opportunity demand analytics')
+  .action(async () => {
+    try {
+      const { marketIntelligenceService } = await import('../modules/campaigns/market-intelligence.service.js');
+      const markets = await marketIntelligenceService.getMarketPerformance();
+      const services = await marketIntelligenceService.getServiceDemandBreakdown();
+
+      console.log('\n======================================================================');
+      console.log('                  CROSS-MARKET PERFORMANCE INTELLIGENCE');
+      console.log('======================================================================\n');
+
+      console.log(
+        'Market / City'.padEnd(25) +
+        'Niche'.padEnd(16) +
+        'Discovered'.padEnd(12) +
+        'Web%'.padEnd(8) +
+        'Qual%'.padEnd(8) +
+        'Digital%'.padEnd(10) +
+        'Phone%'.padEnd(8) +
+        'Total%'.padEnd(8) +
+        'HOT%'.padEnd(8) +
+        'Avg Score'
+      );
+      console.log(''.padEnd(115, '-'));
+
+      for (const m of markets) {
+        console.log(
+          m.market.slice(0, 23).padEnd(25) +
+          m.niche.slice(0, 14).padEnd(16) +
+          String(m.discoveredTotal).padEnd(12) +
+          `${m.websiteAvailabilityRate}%`.padEnd(8) +
+          `${m.qualificationRate}%`.padEnd(8) +
+          `${m.digitalContactRate}%`.padEnd(10) +
+          `${m.phoneContactRate}%`.padEnd(8) +
+          `${m.contactRate}%`.padEnd(8) +
+          `${m.hotRate}%`.padEnd(8) +
+          `${m.avgLeadScore}/100`
+        );
+      }
+
+      console.log('\n----------------------------------------------------------------------');
+      console.log('SERVICE OPPORTUNITY DEMAND BREAKDOWN:');
+      console.log('----------------------------------------------------------------------');
+      console.log(
+        'Recommended Service'.padEnd(26) +
+        'Total Leads'.padEnd(14) +
+        'Avg Score'.padEnd(12) +
+        'HOT'.padEnd(8) +
+        'WARM'.padEnd(8) +
+        'Contactable'
+      );
+      console.log(''.padEnd(80, '-'));
+
+      for (const s of services) {
+        console.log(
+          s.service.padEnd(26) +
+          String(s.leadCount).padEnd(14) +
+          `${s.avgLeadScore}/100`.padEnd(12) +
+          String(s.hotCount).padEnd(8) +
+          String(s.warmCount).padEnd(8) +
+          String(s.contactableCount)
+        );
+      }
+      console.log('\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to load market intelligence', msg);
     } finally {
       await disconnectDatabase();
     }
@@ -1405,3 +1950,5 @@ program
 
 // Execute CLI
 program.parse(process.argv);
+
+

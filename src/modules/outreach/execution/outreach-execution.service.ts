@@ -72,7 +72,7 @@ export class OutreachExecutionService {
       reasons.push(`Draft status is "${draft.status}" (must be "READY_TO_SEND" via explicit human approval).`);
     }
 
-    if (dailySent >= config.MAX_EMAILS_PER_DAY) {
+    if (dailySent >= config.MAX_EMAILS_PER_DAY && !config.DRY_RUN) {
       reasons.push(`Daily email limit reached (${dailySent}/${config.MAX_EMAILS_PER_DAY}).`);
     }
 

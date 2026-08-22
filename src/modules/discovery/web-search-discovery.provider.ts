@@ -2,12 +2,14 @@ import {
   BusinessDiscoveryProvider,
   BusinessDiscoveryQuery,
   DiscoveredBusinessInput,
+  LeadContactChannel,
 } from '../../types/index.js';
 import { DiscoverySource, SourceMetrics } from './discovery-source.interface.js';
 import { OsmOverpassDiscoverySource } from './sources/osm-overpass.source.js';
 import { DuckDuckGoSearchDiscoverySource } from './sources/duckduckgo-search.source.js';
 import { verifyWebsiteReachability, WebsiteReachabilityResult } from './website-verifier.js';
 import { createBusinessMatchKey, extractCanonicalDomain } from './normalizer.js';
+import { getMarketProfile } from '../../config/markets.js';
 import { safetyControls } from '../../config/safety.js';
 import { safeSleep } from '../../utils/sleeper.js';
 import { logger } from '../../utils/logger.js';
@@ -24,6 +26,8 @@ export interface SourceReportItem {
 }
 
 export interface DiscoveryExecutionSummary {
+  market: string;
+  niche: string;
   requested: number;
   discovered: number;
   newBusinesses: number;
@@ -34,6 +38,13 @@ export interface DiscoveryExecutionSummary {
   unreachableWebsites: number;
   timeoutWebsites: number;
   blockedWebsites: number;
+  channelDistribution: {
+    websiteLead: number;
+    phoneOnlyLead: number;
+    emailLead: number;
+    contactFormLead: number;
+    noContactLead: number;
+  };
   blockedSources: string[];
   sourceReports: SourceReportItem[];
   results: EnhancedDiscoveredBusiness[];
@@ -70,6 +81,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
     const requestedTarget = query.limit || 10;
     const effectiveLimit = Math.min(requestedTarget, policy.maxItemsPerRun);
     const globalMaxRequests = policy.maxSourceRequestPerRun;
+    const market = getMarketProfile(query.country);
 
     if (requestedTarget > policy.maxItemsPerRun) {
       this.log.warn(`Requested limit ${requestedTarget} exceeds MAX_ITEMS_PER_RUN (${policy.maxItemsPerRun}). Clamping to ${effectiveLimit}.`);
@@ -98,6 +110,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
         const remainingNeeded = effectiveLimit - discoveredCandidates.length;
         const sourceResults = await source.discover({
           ...query,
+          country: query.country || market.countryCode,
           limit: remainingNeeded,
         });
 
@@ -117,6 +130,10 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
 
           seenNameCityKeys.add(matchKey);
           if (domain) seenDomains.add(domain);
+
+          // Enrich provenance metadata
+          candidate.country = candidate.country || market.countryName;
+          candidate.marketCode = candidate.marketCode || market.countryCode;
 
           discoveredCandidates.push(candidate);
         }
@@ -142,14 +159,25 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
     let timeoutWebsites = 0;
     let blockedWebsites = 0;
 
+    let websiteLeadCount = 0;
+    let phoneOnlyLeadCount = 0;
+    let emailLeadCount = 0;
+    let contactFormLeadCount = 0;
+    let noContactLeadCount = 0;
+
     const enhancedResults: EnhancedDiscoveredBusiness[] = [];
 
     for (const biz of discoveredCandidates) {
       if (!biz.website || biz.website.trim().length === 0) {
         noWebsites++;
+        const channel: LeadContactChannel = biz.phone ? 'PHONE_ONLY_LEAD' : 'NO_CONTACT_LEAD';
+        if (channel === 'PHONE_ONLY_LEAD') phoneOnlyLeadCount++;
+        else noContactLeadCount++;
+
         enhancedResults.push({
           ...biz,
           website: undefined,
+          contactChannel: channel,
           officialWebsiteConfidence: 'UNKNOWN',
           reachability: {
             rawUrl: '',
@@ -178,9 +206,23 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
             break;
         }
 
+        // Determine contact channel
+        let channel: LeadContactChannel = 'WEBSITE_LEAD';
+        if (reachability.status === 'WEBSITE_REACHABLE') {
+          channel = 'WEBSITE_LEAD';
+          websiteLeadCount++;
+        } else if (biz.phone) {
+          channel = 'PHONE_ONLY_LEAD';
+          phoneOnlyLeadCount++;
+        } else {
+          channel = 'NO_CONTACT_LEAD';
+          noContactLeadCount++;
+        }
+
         enhancedResults.push({
           ...biz,
           website: reachability.finalUrl || biz.website,
+          contactChannel: channel,
           officialWebsiteConfidence: reachability.confidence,
           reachability,
         });
@@ -205,6 +247,8 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
     }));
 
     return {
+      market: `${query.city}${query.state ? `, ${query.state}` : ''}, ${market.countryName}`,
+      niche: query.niche,
       requested: requestedTarget,
       discovered: enhancedResults.length,
       newBusinesses: 0, // Populated after DB upsert
@@ -215,6 +259,13 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
       unreachableWebsites,
       timeoutWebsites,
       blockedWebsites,
+      channelDistribution: {
+        websiteLead: websiteLeadCount,
+        phoneOnlyLead: phoneOnlyLeadCount,
+        emailLead: emailLeadCount,
+        contactFormLead: contactFormLeadCount,
+        noContactLead: noContactLeadCount,
+      },
       blockedSources,
       sourceReports,
       results: enhancedResults,

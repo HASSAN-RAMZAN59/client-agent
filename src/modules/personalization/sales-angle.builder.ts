@@ -11,8 +11,8 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
   // Case 1: No Website
   if (!business.website || audit?.websiteStatus === 'NO_WEBSITE' || lead.topOpportunitySignals.includes('NO_WEBSITE')) {
     return {
-      problem: `No dedicated online website detected for ${business.name}`,
-      evidence: ['No active official domain registered in discovery directories or public web search.'],
+      problem: `I couldn't identify an official website for ${business.name}`,
+      evidence: ["I couldn't identify an official website for this business in public registries or local web search."],
       opportunity: `Build a modern, mobile-first website showcasing services in ${business.city}.`,
       recommendedService: 'WEBSITE_REBUILD',
       businessImpact: 'A dedicated web presence makes it easier for potential customers searching online to find business hours, location, and contact options.',

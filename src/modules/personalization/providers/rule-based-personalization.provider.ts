@@ -141,7 +141,7 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
     if (hasNoWebsite) {
       body = `${greeting}
 
-I was looking up ${params.niche} services in ${params.city} and noticed that ${businessName} doesn't currently have an official website listed.
+I was looking up ${params.niche} services in ${params.city} and couldn't identify an official website for ${businessName}.
 
 I build clean, mobile-friendly websites that make it easy for local clients to find your services and get in touch.
 
@@ -195,7 +195,7 @@ ${sender.company}`;
     if (hasNoWebsite) {
       body = `${greeting}
 
-I hope your week is going well. I was researching local ${params.niche} practices in ${params.city} and noticed that ${businessName} doesn't currently have a dedicated website.
+I hope your week is going well. I was researching local ${params.niche} practices in ${params.city} and couldn't identify an official website for ${businessName}.
 
 Having a fast, simple online presence makes it much easier for new customers to check your hours, see services, and request appointments.
 
@@ -256,7 +256,7 @@ ${sender.company}`;
     if (hasNoWebsite) {
       body = `${greeting}
 
-I was conducting research on ${params.niche} providers in ${params.city} and couldn't locate an official active domain for ${businessName}.
+I was conducting research on ${params.niche} providers in ${params.city} and couldn't identify an official website for ${businessName}.
 
 For local service businesses, having an accessible web presence is essential for:
  • Displaying clear service lists and contact details for smartphone searchers

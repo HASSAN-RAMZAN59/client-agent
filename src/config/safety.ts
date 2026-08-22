@@ -15,6 +15,11 @@ export interface SafetyPolicy {
   sourceMaxRequestsPerRun: number;
   sourceMinDelayMs: number;
   sourceMaxRetries: number;
+  // Phase 8 Discovery Volume & Coverage Optimization
+  maxDiscoveryQueriesPerRun: number;
+  maxResultsPerQuery: number;
+  discoveryRequestDelayMs: number;
+  discoveryExcludedDomains: string;
   // Phase 3 Website Auditing Safety
   auditHeadless: boolean;
   auditPageTimeoutMs: number;
@@ -47,6 +52,10 @@ export class SafetyControls {
       sourceMaxRequestsPerRun: cfg.SOURCE_MAX_REQUESTS_PER_RUN,
       sourceMinDelayMs: cfg.SOURCE_MIN_DELAY_MS,
       sourceMaxRetries: cfg.SOURCE_MAX_RETRIES,
+      maxDiscoveryQueriesPerRun: cfg.MAX_DISCOVERY_QUERIES_PER_RUN,
+      maxResultsPerQuery: cfg.MAX_RESULTS_PER_QUERY,
+      discoveryRequestDelayMs: cfg.DISCOVERY_REQUEST_DELAY_MS,
+      discoveryExcludedDomains: cfg.DISCOVERY_EXCLUDED_DOMAINS || '',
       auditHeadless: cfg.AUDIT_HEADLESS,
       auditPageTimeoutMs: cfg.AUDIT_PAGE_TIMEOUT_MS,
       auditMaxPagesPerSite: cfg.AUDIT_MAX_PAGES_PER_SITE,

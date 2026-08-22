@@ -77,8 +77,68 @@ export class MockBusinessDiscoveryProvider implements BusinessDiscoveryProvider 
       return matchNiche && matchCity;
     });
 
-    const results = (filtered.length > 0 ? filtered : this.sampleBusinesses).slice(0, requestedLimit);
+    const baseResults = (filtered.length > 0 ? filtered : this.sampleBusinesses).slice(0, requestedLimit);
+    const results = baseResults.map((b, idx) => ({
+      ...b,
+      name: `${b.name} ${query.city || b.city}`,
+      city: query.city || b.city,
+      country: query.country || b.country,
+      category: query.niche || b.category,
+      website: b.website ? `https://${b.name.toLowerCase().replace(/[^a-z0-9]/g, '')}-${(query.city || 'local').toLowerCase().replace(/[^a-z0-9]/g, '')}-${idx}.com` : undefined,
+    }));
     this.log.info(`Discovered ${results.length} businesses.`);
     return results;
   }
+
+  public async discoverDetailed(query: BusinessDiscoveryQuery): Promise<any> {
+    const raw = await this.discover(query);
+    const results = raw.map((biz) => ({
+      ...biz,
+      reachability: {
+        rawUrl: biz.website || '',
+        reachable: Boolean(biz.website),
+        status: biz.website ? 'WEBSITE_REACHABLE' : 'NO_WEBSITE_FOUND',
+        confidence: 'HIGH',
+      },
+    }));
+
+    return {
+      market: `${query.city}, ${query.country || 'USA'}`,
+      niche: query.niche,
+      requested: query.limit || 10,
+      discovered: results.length,
+      newBusinesses: 0,
+      duplicates: 0,
+      websitesFound: results.filter((r) => Boolean(r.website)).length,
+      noWebsites: results.filter((r) => !r.website).length,
+      reachableWebsites: results.filter((r) => Boolean(r.website)).length,
+      unreachableWebsites: 0,
+      timeoutWebsites: 0,
+      blockedWebsites: 0,
+      channelDistribution: {
+        websiteLead: results.filter((r) => Boolean(r.website)).length,
+        phoneOnlyLead: results.filter((r) => !r.website && Boolean(r.phone)).length,
+        emailLead: 0,
+        contactFormLead: 0,
+        noContactLead: results.filter((r) => !r.website && !r.phone).length,
+      },
+      blockedSources: [],
+      sourceReports: [
+        {
+          name: 'Mock_Dataset',
+          type: 'mock',
+          status: 'AVAILABLE',
+          metrics: {
+            requestsCount: 1,
+            successfulCount: 1,
+            failedCount: 0,
+            blockedCount: 0,
+            itemsDiscovered: results.length,
+          },
+        },
+      ],
+      results,
+    };
+  }
 }
+

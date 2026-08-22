@@ -181,18 +181,26 @@ export interface LeadScoreResult extends ComprehensiveLeadScore {
 
 export interface DiscoveredBusinessInput {
   name: string;
+  rawName?: string;
   category: string;
   city: string;
+  state?: string;
   country?: string;
+  postalCode?: string;
+  marketCode?: string;
   address?: string;
   phone?: string;
+  phoneClassification?: 'BUSINESS_PHONE' | 'DECISION_MAKER_PHONE';
   website?: string;
   source: string;
   sourceUrl?: string;
+  queryVariant?: string;
+  contactChannel?: LeadContactChannel;
   websiteSource?: string;
   phoneSource?: string;
   addressSource?: string;
   officialWebsiteConfidence?: OfficialWebsiteConfidence;
+  nameConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
   discoveredAt?: Date;
 }
 
@@ -218,6 +226,8 @@ export type ContactClassification =
   | 'BUSINESS_GENERIC'
   | 'BUSINESS_DEPARTMENT'
   | 'BUSINESS_NAMED'
+  | 'BUSINESS_PHONE'
+  | 'DECISION_MAKER_PHONE'
   | 'UNKNOWN';
 
 export type ContactSourceType =
@@ -300,11 +310,23 @@ export interface SendEmailResult {
 // Core Provider Interfaces
 // ------------------------------------------------------------------------------
 
+// Phase 8 Discovery Volume, Lead Channels & Multi-Market Types
+export type LeadContactChannel =
+  | 'WEBSITE_LEAD'
+  | 'PHONE_ONLY_LEAD'
+  | 'CONTACT_FORM_LEAD'
+  | 'EMAIL_LEAD'
+  | 'NO_CONTACT_LEAD';
+
 export interface BusinessDiscoveryQuery {
   niche: string;
   city: string;
   country?: string;
+  state?: string;
+  postalCode?: string;
   limit?: number;
+  maxQueries?: number;
+  excludedDomains?: string[];
 }
 
 export interface BusinessDiscoveryProvider {
@@ -622,3 +644,172 @@ export interface SystemHealthStatus {
     maxSourceRequestPerRun: number;
   };
 }
+
+// ------------------------------------------------------------------------------
+// Phase 9 Campaign Configuration, Funnel & Conversion Workflow Types
+// ------------------------------------------------------------------------------
+
+export type CampaignStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
+
+export interface CampaignRecord {
+  id: string;
+  name: string;
+  country: string;
+  state?: string | null;
+  city: string;
+  niche: string;
+  targetBusinesses: number;
+  minLeadScore: number;
+  minContactQuality: number;
+  maxDiscoveryPerRun: number;
+  maxEmailsPerDay: number;
+  targetWebsiteOpportunity?: number | null;
+  preferredService: string;
+  status: CampaignStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CampaignInput {
+  name: string;
+  country?: string;
+  state?: string;
+  city: string;
+  niche: string;
+  targetBusinesses?: number;
+  minLeadScore?: number;
+  minContactQuality?: number;
+  maxDiscoveryPerRun?: number;
+  maxEmailsPerDay?: number;
+  targetWebsiteOpportunity?: number;
+  preferredService?: string;
+}
+
+export interface CampaignFunnelStage {
+  stage: string;
+  count: number;
+  percentage: number;
+  conversionFromPrevious: number;
+  dropOffCount: number;
+  dropOffPercentage: number;
+}
+
+export interface ContactabilityBreakdown {
+  digitalContactable: number;
+  digitalContactRate: number;
+  emailCount: number;
+  formCount: number;
+  phoneContactable: number;
+  phoneContactRate: number;
+  businessPhoneCount: number;
+  totalContactable: number;
+  totalContactRate: number;
+  noContact: number;
+  noContactRate: number;
+}
+
+export interface CampaignFunnelSummary {
+  campaignId: string;
+  campaignName: string;
+  stages: CampaignFunnelStage[];
+  contactability?: ContactabilityBreakdown;
+  bottleneckStage: string;
+  bottleneckReason: string;
+}
+
+export interface CampaignPacingSummary {
+  targetTotal: number;
+  achieved: number;
+  remaining: number;
+  avgPerDayRequired: number;
+  currentAvgPerDay: number;
+  projectedCompletionDate: Date | null;
+  onTrack: boolean;
+}
+
+export interface MarketPerformanceMetric {
+  market: string;
+  country: string;
+  state?: string;
+  city: string;
+  niche: string;
+  discoveredTotal: number;
+  qualifiedTotal: number;
+  qualificationRate: number;
+  digitalContactable: number;
+  digitalContactRate: number;
+  phoneContactable: number;
+  phoneContactRate: number;
+  contactableTotal: number;
+  contactRate: number;
+  noContactTotal: number;
+  hotCount: number;
+  hotRate: number;
+  warmCount: number;
+  warmRate: number;
+  avgLeadScore: number;
+  avgContactQuality: number;
+  websiteAvailabilityRate: number;
+}
+
+export interface ServiceDemandMetric {
+  service: RecommendedService;
+  leadCount: number;
+  avgLeadScore: number;
+  hotCount: number;
+  warmCount: number;
+  contactableCount: number;
+}
+
+export interface LeadQueueItem {
+  id: string;
+  businessId: string;
+  businessName: string;
+  city: string;
+  state?: string;
+  country: string;
+  address?: string;
+  phone?: string;
+  niche: string;
+  website?: string;
+  leadScore: number;
+  classification: LeadClassification;
+  priorityRank: number;
+  contactValue?: string;
+  contactType: string;
+  contactQualityScore: number;
+  problemSeverity: number;
+  dataConfidence: AuditConfidence;
+  recommendedService: RecommendedService;
+  salesAngleText?: string;
+  recommendedChannel: 'PHONE' | 'EMAIL' | 'CONTACT_FORM';
+  status: string;
+}
+
+export interface ReviewQueueItem {
+  outreachId: string;
+  leadId: string;
+  businessId: string;
+  businessName: string;
+  city: string;
+  website?: string;
+  leadScore: number;
+  classification: string;
+  websiteQualityScore: number;
+  contactValue?: string;
+  contactType: string;
+  salesAngle: string;
+  recommendedService: string;
+  subject: string;
+  bodyPreview: string;
+  qualityScore: number;
+  qualityBand: QualityBand;
+  evidenceValid: boolean;
+  identityValid: boolean;
+  isSuppressed: boolean;
+  isExpired: boolean;
+  status: OutreachLifecycleStatus;
+  approvedAt?: Date;
+  approvedBy?: string;
+}
+

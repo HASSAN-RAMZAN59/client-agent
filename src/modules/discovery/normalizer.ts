@@ -123,6 +123,143 @@ export function normalizeBusinessName(name: string): string {
     .trim();
 }
 
+export interface CleanTitleResult {
+  cleanedName: string;
+  rawTitle: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  modified: boolean;
+}
+
+/**
+ * Generic business-name cleaning layer for search-derived page titles.
+ * Detects and removes:
+ * - Common page-title prefixes (Contact Us, Home, Welcome to, Official Website, etc.)
+ * - Pipe and dash separators and trailing SEO qualifiers
+ * - Trailing location tags (e.g. Dallas TX, Dallas, TX)
+ * - Repeated business-name fragments (e.g. "Atlantis Dental Care Dallas TX Atlantis Dental Care")
+ * - Preserves legitimate business names and returns confidence indicators
+ */
+export function cleanSearchTitleToBusinessName(
+  rawTitle: string,
+  options?: {
+    city?: string;
+    state?: string;
+    niche?: string;
+    country?: string;
+  }
+): CleanTitleResult {
+  if (!rawTitle || typeof rawTitle !== 'string') {
+    return { cleanedName: '', rawTitle: '', confidence: 'LOW', modified: false };
+  }
+
+  const original = rawTitle.trim();
+  let text = original;
+
+  // 1. Remove HTML entities
+  text = text
+    .replace(/&amp;/gi, '&')
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+
+  // 2. Remove parentheticals at the end e.g. (Formerly XYZ)
+  text = text.replace(/\s*\([^)]*\)$/, '').trim();
+
+  // 3. Handle Pipe, Dash, and Bullet delimited segments e.g. "Atlantis Dental Care | Dallas Dentist | Official Website"
+  const segments = text.split(/\s*[-–—|•:]\s*/).map((s) => s.trim()).filter(Boolean);
+  if (segments.length > 1) {
+    // Find the primary brand segment (first non-generic segment)
+    const genericSegmentRegex = /^(?:home(?:page)?|contact(?:\s+us)?|about(?:\s+us)?|official\s+(?:web)?site|welcome|services|locations?|reviews|directions|appointment|dentist|dental|doctor|clinic)$/i;
+    const substantive = segments.find((seg) => !genericSegmentRegex.test(seg) && seg.length >= 3);
+    if (substantive) {
+      text = substantive;
+    } else {
+      text = segments[0] || text;
+    }
+  }
+
+  // 4. Strip common page-title prefixes
+  // e.g. "Contact Us Atlantis Dental Care", "CONTACT US Family Dentistry", "Home - Example Dental Clinic", "Welcome to Dr. Smith"
+  const prefixRegex = /^(?:contact\s+us|about\s+us|home(?:page)?|welcome(?:\s+to)?|official\s+(?:web)?site|our\s+services|locations?|book\s+online|get\s+(?:a\s+)?quote)\s*[-–—|:•/,\s]+\s*/i;
+  while (prefixRegex.test(text)) {
+    text = text.replace(prefixRegex, '').trim();
+  }
+
+  // Handle prefix without separator if followed by brand name (e.g. "CONTACT US Family Dentistry & Implant Center")
+  const standalonePrefixRegex = /^(?:contact\s+us|about\s+us|home|welcome(?:\s+to)?)\s+/i;
+  if (standalonePrefixRegex.test(text)) {
+    const after = text.replace(standalonePrefixRegex, '').trim();
+    if (after.length >= 3) {
+      text = after;
+    }
+  }
+
+  // 5. Strip common page-title suffixes
+  // e.g. "... | Official Website", "... - Home", "... - Yelp", "... : Reviews"
+  const suffixRegex = /\s*[-–—|:•/]\s*(?:official\s+(?:web)?site|official\s+page|home(?:page)?|contact\s+us|about\s+us|services|reviews|yelp|facebook|instagram|linkedin|mapquest|yellowpages|bbb|online\s+booking|get\s+quote).*$/i;
+  text = text.replace(suffixRegex, '').trim();
+
+  // 6. Strip trailing location qualifiers
+  // e.g. "Example Dental Clinic - Dallas TX", "Example Dental Clinic Dallas, TX"
+  if (options?.city) {
+    const cityRegex = new RegExp(`\\s*[-–—|:•/]?\\s*(?:in\\s+)?${options.city}(?:,?\\s*(?:${options.state || '[A-Z]{2}'}|Texas|USA|US))?\\s*$`, 'i');
+    text = text.replace(cityRegex, '').trim();
+  }
+  // Generic city/state suffix e.g. "Dallas TX", "Dallas, TX", "Austin TX"
+  text = text.replace(/\s*[-–—|:•/]?\s*(?:[A-Z][a-zA-Z\s]+,?\s*(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA))\s*$/i, '').trim();
+
+  // 7. Detect and collapse repeated business-name fragments
+  // e.g. "Atlantis Dental Care Dallas TX Atlantis Dental Care" -> after location removal: "Atlantis Dental Care Atlantis Dental Care"
+  // or "Atlantis Dental Care ... Atlantis Dental Care"
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (tokens.length >= 4) {
+    // Check if the first half matches the second half
+    const half = Math.floor(tokens.length / 2);
+    const firstHalf = tokens.slice(0, half).join(' ').toLowerCase();
+    const secondHalf = tokens.slice(half).join(' ').toLowerCase();
+    if (firstHalf === secondHalf) {
+      text = tokens.slice(0, half).join(' ');
+    } else {
+      // Check for repeated multi-word phrase at start and end
+      for (let len = Math.floor(tokens.length / 2); len >= 2; len--) {
+        const startPhrase = tokens.slice(0, len).join(' ').toLowerCase();
+        const endPhrase = tokens.slice(tokens.length - len).join(' ').toLowerCase();
+        if (startPhrase === endPhrase) {
+          text = tokens.slice(0, len).join(' ');
+          break;
+        }
+      }
+    }
+  }
+
+  // 8. Clean up punctuation and whitespace
+  const cleanedName = normalizeBusinessName(text);
+
+  // If cleaning resulted in an empty string or single word when original had more substance, fallback gracefully
+  const finalName = cleanedName.length >= 3 ? cleanedName : normalizeBusinessName(original);
+
+  const modified = finalName.toLowerCase() !== original.toLowerCase();
+  let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH';
+
+  if (!modified) {
+    confidence = 'HIGH';
+  } else if (finalName.length >= 4 && original.toLowerCase().includes(finalName.toLowerCase())) {
+    confidence = 'HIGH';
+  } else if (finalName.length < 4) {
+    confidence = 'LOW';
+  } else {
+    confidence = 'MEDIUM';
+  }
+
+  return {
+    cleanedName: finalName,
+    rawTitle: original,
+    confidence,
+    modified,
+  };
+}
+
 /**
  * Creates a clean deduplication key for a business.
  */
@@ -145,3 +282,4 @@ export function normalizePhone(phone: string | undefined | null): string | undef
   const cleaned = phone.trim().replace(/[^\d+()-\s.]/g, '');
   return cleaned.length >= 7 ? cleaned : undefined;
 }
+

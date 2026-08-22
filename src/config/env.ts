@@ -115,6 +115,34 @@ const envSchema = z.object({
     .refine((val) => !isNaN(val) && val >= 0 && val <= 3, 'SOURCE_MAX_RETRIES must be between 0 and 3')
     .default(1),
 
+  // Phase 8 Discovery Volume & Coverage Optimization
+  MAX_DISCOVERY_QUERIES_PER_RUN: z
+    .string()
+    .or(z.number())
+    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
+    .refine((val) => !isNaN(val) && val >= 1 && val <= 10, 'MAX_DISCOVERY_QUERIES_PER_RUN must be between 1 and 10')
+    .default(4),
+
+  MAX_RESULTS_PER_QUERY: z
+    .string()
+    .or(z.number())
+    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
+    .refine((val) => !isNaN(val) && val >= 1 && val <= 25, 'MAX_RESULTS_PER_QUERY must be between 1 and 25')
+    .default(10),
+
+  DISCOVERY_REQUEST_DELAY_MS: z
+    .string()
+    .or(z.number())
+    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
+    .refine((val) => !isNaN(val) && val >= 500, 'DISCOVERY_REQUEST_DELAY_MS must be at least 500ms')
+    .default(1500),
+
+  DISCOVERY_EXCLUDED_DOMAINS: z
+    .string()
+    .optional()
+    .default(''),
+
+
   // Phase 3 Website Auditing Configuration
   AUDIT_HEADLESS: z
     .string()

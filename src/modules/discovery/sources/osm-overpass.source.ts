@@ -2,6 +2,7 @@ import { DiscoverySource, DiscoverySourceType, SourceMetrics } from '../discover
 import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus } from '../../../types/index.js';
 import { normalizeBusinessName, normalizePhone, normalizeUrl } from '../normalizer.js';
 import { calculateOfficialWebsiteConfidence } from '../website-verifier.js';
+import { getMarketProfile } from '../../../config/markets.js';
 import { safetyControls, SafetyControls } from '../../../config/safety.js';
 import { safeSleep } from '../../../utils/sleeper.js';
 import { logger } from '../../../utils/logger.js';
@@ -17,6 +18,12 @@ interface OverpassElement {
 interface OverpassResponse {
   elements: OverpassElement[];
 }
+
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
 
 export class OsmOverpassDiscoverySource implements DiscoverySource {
   public readonly name = 'OpenStreetMap_Overpass';
@@ -73,30 +80,62 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
     };
   }
 
-  private mapNicheToOsmTags(niche: string): string[] {
-    const lower = niche.toLowerCase();
+  private mapNicheToOsmTags(niche: string, country?: string): string[] {
+    const market = getMarketProfile(country);
+    const lower = niche.toLowerCase().trim();
+
+    // Check market-specific mappings first
+    for (const [key, tags] of Object.entries(market.nicheMappings)) {
+      if (lower.includes(key) || key.includes(lower)) {
+        return tags;
+      }
+    }
+
     if (lower.includes('dentist') || lower.includes('dental')) {
       return ['["amenity"="dentist"]', '["healthcare"="dentist"]'];
     }
-    if (lower.includes('doctor') || lower.includes('clinic') || lower.includes('medical')) {
+    if (lower.includes('doctor') || lower.includes('clinic') || lower.includes('medical') || lower.includes('physician')) {
       return ['["amenity"="doctors"]', '["amenity"="clinic"]', '["healthcare"="doctor"]'];
     }
-    if (lower.includes('restaurant') || lower.includes('food') || lower.includes('bakery') || lower.includes('cafe')) {
-      return ['["amenity"="restaurant"]', '["amenity"="cafe"]'];
+    if (lower.includes('restaurant') || lower.includes('food') || lower.includes('diner') || lower.includes('eatery')) {
+      return ['["amenity"="restaurant"]', '["amenity"="cafe"]', '["amenity"="fast_food"]'];
+    }
+    if (lower.includes('cafe') || lower.includes('coffee') || lower.includes('bakery')) {
+      return ['["amenity"="cafe"]', '["shop"="bakery"]'];
     }
     if (lower.includes('plumb')) {
       return ['["craft"="plumber"]', '["trade"="plumber"]'];
     }
-    if (lower.includes('law') || lower.includes('legal') || lower.includes('attorney')) {
+    if (lower.includes('law') || lower.includes('legal') || lower.includes('attorney') || lower.includes('solicitor')) {
       return ['["office"="lawyer"]', '["office"="legal"]'];
     }
-    if (lower.includes('gym') || lower.includes('fitness')) {
-      return ['["leisure"="fitness_centre"]'];
+    if (lower.includes('gym') || lower.includes('fitness') || lower.includes('crossfit')) {
+      return ['["leisure"="fitness_centre"]', '["leisure"="sports_centre"]'];
     }
-    if (lower.includes('hvac') || lower.includes('electric')) {
-      return ['["craft"="electrician"]', '["craft"="hvac"]'];
+    if (lower.includes('hvac') || lower.includes('air cond') || lower.includes('heating') || lower.includes('electric')) {
+      return ['["craft"="hvac"]', '["craft"="electrician"]', '["craft"="plumber"]'];
     }
-    return [`["amenity"="${lower.replace(/[^a-z]/g, '')}"]`, `["office"="${lower.replace(/[^a-z]/g, '')}"]`];
+    if (lower.includes('roof')) {
+      return ['["craft"="roofer"]', '["craft"="construction"]'];
+    }
+    if (lower.includes('auto') || lower.includes('car dealer') || lower.includes('dealership') || lower.includes('motor')) {
+      return ['["shop"="car"]', '["shop"="car_repair"]'];
+    }
+    if (lower.includes('real estate') || lower.includes('realtor') || lower.includes('property')) {
+      return ['["office"="estate_agent"]', '["office"="real_estate"]'];
+    }
+    if (lower.includes('salon') || lower.includes('barber') || lower.includes('hair') || lower.includes('spa')) {
+      return ['["shop"="hairdresser"]', '["shop"="beauty"]'];
+    }
+    if (lower.includes('clean')) {
+      return ['["craft"="cleaning"]', '["office"="cleaning"]'];
+    }
+    if (lower.includes('software') || lower.includes('it ') || lower.includes('tech') || lower.includes('web dev') || lower.includes('agency')) {
+      return ['["office"="it"]', '["office"="company"]', '["office"="telecommunication"]'];
+    }
+
+    const clean = lower.replace(/[^a-z]/g, '');
+    return [`["amenity"="${clean}"]`, `["office"="${clean}"]`, `["craft"="${clean}"]`, `["shop"="${clean}"]`];
   }
 
   public async discover(query: BusinessDiscoveryQuery): Promise<DiscoveredBusinessInput[]> {
@@ -121,57 +160,87 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
 
     try {
       const limit = query.limit || 10;
-      const tagFilters = this.mapNicheToOsmTags(query.niche);
+      const market = getMarketProfile(query.country);
+      const tagFilters = this.mapNicheToOsmTags(query.niche, query.country);
+
       const filterUnion = tagFilters
-        .map((tag) => `node${tag}(area.searchArea);\n  way${tag}(area.searchArea);`)
+        .map((tag) => `node${tag}(area.searchArea);\n  way${tag}(area.searchArea);\n  relation${tag}(area.searchArea);`)
         .join('\n  ');
+
+      const adminLevel = market.overpassAreaAdminLevel || '^[4-8]$';
+      const city = query.city.trim();
 
       const overpassQuery = `
 [out:json][timeout:15];
-area["name"="${query.city}"]["admin_level"~"^[4-8]$"]->.searchArea;
+area["name"="${city}"]["admin_level"~"${adminLevel}"]->.searchArea;
 (
   ${filterUnion}
 );
-out center ${limit * 2};
+out center ${limit * 3};
 `.trim();
 
-      this.log.info(`Querying OpenStreetMap Overpass with User-Agent: "${policy.discoveryUserAgent}" for niche="${query.niche}", city="${query.city}"`);
+      this.log.info(`Querying OpenStreetMap Overpass with User-Agent: "${policy.discoveryUserAgent}" for niche="${query.niche}", city="${query.city}" (${market.countryCode})`);
 
-      const endpoint = 'https://overpass-api.de/api/interpreter';
-      this.metrics.requestsCount++;
+      let rawData: OverpassResponse | null = null;
+      let lastError: Error | null = null;
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': policy.discoveryUserAgent,
-        },
-        body: `data=${encodeURIComponent(overpassQuery)}`,
-        signal: AbortSignal.timeout(16000),
-      });
+      let lastStatus = 200;
+      // Try Overpass endpoints with fallback
+      for (const endpoint of OVERPASS_ENDPOINTS) {
+        if (this.metrics.requestsCount >= sourceBudget) break;
 
-      if (response.status === 429) {
-        this.markBlocked('Overpass API rate limit (429)', 'RATE_LIMITED');
-        this.metrics.failedCount++;
-        return [];
+        try {
+          this.metrics.requestsCount++;
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'User-Agent': policy.discoveryUserAgent,
+            },
+            body: `data=${encodeURIComponent(overpassQuery)}`,
+            signal: AbortSignal.timeout(16000),
+          });
+
+          lastStatus = response.status;
+
+          if (response.status === 429) {
+            this.log.warn(`Overpass endpoint ${endpoint} rate limited (429). Trying fallback endpoint if available.`);
+            continue;
+          }
+
+          if (response.status === 403) {
+            this.log.warn(`Overpass endpoint ${endpoint} forbidden (403). Trying fallback endpoint.`);
+            continue;
+          }
+
+          if (!response.ok) {
+            this.log.warn(`Overpass endpoint ${endpoint} returned status ${response.status}`);
+            continue;
+          }
+
+          rawData = (await response.json()) as OverpassResponse;
+          if (rawData && Array.isArray(rawData.elements)) {
+            break;
+          }
+        } catch (err: unknown) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          this.log.warn(`Overpass endpoint ${endpoint} failed: ${lastError.message}`);
+        }
       }
 
-      if (response.status === 403) {
-        this.markBlocked('Overpass API forbidden (403)', 'BLOCKED');
-        this.metrics.failedCount++;
-        return [];
-      }
-
-      if (!response.ok) {
-        this.log.warn(`Overpass API returned status ${response.status}`);
-        this.metrics.failedCount++;
-        this.status = 'ERROR';
-        return [];
-      }
-
-      const data = (await response.json()) as OverpassResponse;
-      if (!data.elements || !Array.isArray(data.elements)) {
-        this.metrics.successfulCount++;
+      if (!rawData || !rawData.elements || !Array.isArray(rawData.elements)) {
+        if (lastStatus === 429) {
+          this.markBlocked('Overpass API rate limit (429)', 'RATE_LIMITED');
+          this.metrics.failedCount++;
+        } else if (lastStatus === 403) {
+          this.markBlocked('Overpass API forbidden (403)', 'BLOCKED');
+          this.metrics.failedCount++;
+        } else if (lastError) {
+          this.metrics.failedCount++;
+          this.log.warn(`All OpenStreetMap Overpass endpoints failed or returned empty: ${lastError?.message || 'Empty'}`);
+        } else {
+          this.metrics.successfulCount++;
+        }
         return [];
       }
 
@@ -179,12 +248,12 @@ out center ${limit * 2};
       const results: DiscoveredBusinessInput[] = [];
       const now = new Date();
 
-      for (const el of data.elements) {
+      for (const el of rawData.elements) {
         if (!el.tags || !el.tags.name) continue;
 
         const rawName = el.tags.name;
         const normalizedName = normalizeBusinessName(rawName);
-        if (!normalizedName) continue;
+        if (!normalizedName || normalizedName.length < 2) continue;
 
         const rawWebsite = el.tags.website || el.tags['contact:website'] || el.tags.url;
         const website = normalizeUrl(rawWebsite) || undefined;
@@ -193,7 +262,11 @@ out center ${limit * 2};
 
         const street = el.tags['addr:street'] || '';
         const houseNumber = el.tags['addr:housenumber'] || '';
-        const address = street || houseNumber ? `${houseNumber} ${street}`.trim() : undefined;
+        const postalCode = el.tags['addr:postcode'] || query.postalCode || undefined;
+        const state = el.tags['addr:state'] || el.tags['addr:province'] || query.state || undefined;
+
+        const addressParts = [houseNumber, street].filter(Boolean).join(' ');
+        const address = addressParts.length > 0 ? addressParts : undefined;
 
         const confidence = website
           ? calculateOfficialWebsiteConfidence(normalizedName, website)
@@ -201,18 +274,26 @@ out center ${limit * 2};
 
         results.push({
           name: normalizedName,
+          rawName: el.tags?.name || normalizedName,
           category: query.niche,
           city: query.city,
-          country: query.country || 'USA',
+          state,
+          country: market.countryName,
+          postalCode,
+          marketCode: market.countryCode,
           address,
           phone,
+          phoneClassification: phone ? 'BUSINESS_PHONE' : undefined,
           website,
           source: 'osm_overpass',
           sourceUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+          queryVariant: `${query.niche} in ${query.city}`,
+          contactChannel: website ? 'WEBSITE_LEAD' : (phone ? 'PHONE_ONLY_LEAD' : 'NO_CONTACT_LEAD'),
           websiteSource: website ? 'osm_overpass' : undefined,
           phoneSource: phone ? 'osm_overpass' : undefined,
           addressSource: address ? 'osm_overpass' : undefined,
           officialWebsiteConfidence: confidence,
+          nameConfidence: 'HIGH',
           discoveredAt: now,
         });
 
@@ -222,7 +303,6 @@ out center ${limit * 2};
       this.metrics.itemsDiscovered += results.length;
       this.log.info(`OpenStreetMap Overpass discovered ${results.length} valid businesses.`);
 
-      // Apply polite source delay
       await safeSleep(policy.sourceMinDelayMs);
       return results;
     } catch (err: unknown) {

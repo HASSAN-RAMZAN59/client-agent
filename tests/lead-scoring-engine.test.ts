@@ -104,7 +104,7 @@ describe('Phase 4: Multi-Factor Lead Scoring & Prioritization', () => {
       });
 
       expect(salesAngle.recommendedService).toBe('WEBSITE_REBUILD');
-      expect(salesAngle.problem).toContain('No online website presence');
+      expect(salesAngle.problem).toContain("couldn't identify an official website");
     });
 
     it('should recommend MOBILE_APP for high-quality websites with booking/ordering workflows', () => {
