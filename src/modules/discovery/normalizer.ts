@@ -20,6 +20,14 @@ const TRACKING_PARAMS = new Set([
 ]);
 
 /**
+ * Normalizes an email address by trimming whitespace and lowercasing.
+ */
+export function normalizeEmail(email: string): string {
+  if (!email) return '';
+  return email.trim().toLowerCase();
+}
+
+/**
  * Normalizes a URL:
  * - Ensures valid protocol
  * - Lowercases hostname

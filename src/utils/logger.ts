@@ -160,3 +160,7 @@ export class Logger {
 }
 
 export const logger = new Logger('App');
+
+export function createLogger(moduleName: string): Logger {
+  return new Logger(moduleName);
+}

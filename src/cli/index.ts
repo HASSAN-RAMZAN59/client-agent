@@ -1757,6 +1757,22 @@ program
       for (const [svc, count] of Object.entries(report.serviceBreakdown)) {
         console.log(`• ${svc.padEnd(25)}: ${count} prospects`);
       }
+
+      try {
+        const { replyTrackingService } = await import('../modules/outreach/reply/reply-tracking.service.js');
+        const replies = await replyTrackingService.getRepliesSummary(targetId);
+        console.log('\n----------------------------------------------------------------------');
+        console.log('INBOUND REPLIES & CONVERSION INTELLIGENCE:');
+        console.log('----------------------------------------------------------------------');
+        console.log(`• Total Inbound Replies : ${replies.total}`);
+        console.log(`• Positive Replies      : ${replies.positive}`);
+        console.log(`• Questions / Inquiries : ${replies.question}`);
+        console.log(`• Negative Responses    : ${replies.negative}`);
+        console.log(`• Unsubscribe Requests  : ${replies.unsubscribe}`);
+        console.log(`• Out of Office Auto    : ${replies.outOfOffice}\n`);
+      } catch {
+        // Safe fallback if reply tracking is clean
+      }
       console.log('\n');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1793,43 +1809,227 @@ program
 
       console.log('\n========================================================================================================');
       console.log('                                      PRIORITIZED LEAD QUEUE');
-      console.log('========================================================================================================\n');
+      console.log('======================================================================\n');
 
       if (items.length === 0) {
         console.log('No leads found matching the filter criteria.\n');
         return;
       }
 
-      console.log(
-        'Rank'.padEnd(6) +
-        'Business Name'.padEnd(26) +
-        'Location'.padEnd(16) +
-        'Phone / Contact'.padEnd(20) +
-        'Score'.padEnd(8) +
-        'Class'.padEnd(8) +
-        'Channel'.padEnd(14) +
-        'Sales Angle'
-      );
-      console.log(''.padEnd(120, '-'));
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]!;
-        const contactStr = item.phone || item.contactValue || 'None';
+      if (options.phoneOnly) {
+        console.log('--- PHONE-ONLY ACTION QUEUE & CALL GUIDANCE ---');
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]!;
+          console.log(`┌── [LEAD #${i + 1}] ${item.businessName} (${item.city}, ${item.country}) ─────────────────────────`);
+          console.log(`│ Phone Number       : ${item.phone || 'None listed'}`);
+          console.log(`│ Opportunity Score  : ${item.leadScore}/100 [${item.classification}] | Rank: #${item.priorityRank}`);
+          console.log(`│ Website Status     : ${item.websiteStatus || (item.website ? 'ACTIVE' : 'NO_WEBSITE')} | Confidence: ${item.nameConfidence || 'HIGH'}`);
+          console.log(`│ Problem Detected   : ${item.salesAngleText}`);
+          console.log(`│ Suggested Service  : ${item.recommendedService}`);
+          console.log(`│ Call Objective     : ${item.suggestedObjective || 'Confirm official web presence and marketing contact'}`);
+          console.log(`│ Suggested Opening  : "${item.suggestedOpening || 'Hello, I was checking local services...'}"`);
+          console.log(`└──\n`);
+        }
+      } else {
         console.log(
-          `#${i + 1}`.padEnd(6) +
-          item.businessName.slice(0, 24).padEnd(26) +
-          `${item.city}, ${item.country}`.slice(0, 14).padEnd(16) +
-          contactStr.slice(0, 18).padEnd(20) +
-          `${item.leadScore}/100`.padEnd(8) +
-          item.classification.padEnd(8) +
-          item.recommendedChannel.padEnd(14) +
-          (item.salesAngleText || item.recommendedService).slice(0, 32)
+          'Rank'.padEnd(6) +
+          'Business Name'.padEnd(26) +
+          'Location'.padEnd(16) +
+          'Phone / Contact'.padEnd(20) +
+          'Score'.padEnd(8) +
+          'Class'.padEnd(8) +
+          'Channel'.padEnd(14) +
+          'Sales Angle'
         );
+        console.log(''.padEnd(120, '-'));
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]!;
+          const contactStr = item.phone || item.contactValue || 'None';
+          console.log(
+            `#${i + 1}`.padEnd(6) +
+            item.businessName.slice(0, 24).padEnd(26) +
+            `${item.city}, ${item.country}`.slice(0, 14).padEnd(16) +
+            contactStr.slice(0, 18).padEnd(20) +
+            `${item.leadScore}/100`.padEnd(8) +
+            item.classification.padEnd(8) +
+            item.recommendedChannel.padEnd(14) +
+            (item.salesAngleText || item.recommendedService).slice(0, 32)
+          );
+        }
       }
       console.log('\n');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Failed to load lead queue', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('review-interactive')
+  .description('Interactive human review interface for pending outreach drafts')
+  .action(async () => {
+    try {
+      const { interactiveReviewerService } = await import('../modules/outreach/review/interactive-reviewer.service.js');
+      await interactiveReviewerService.startInteractiveCli();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed in interactive review', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('pilot-preview')
+  .description('Preview controlled live pilot candidates and pre-send safety validation without sending')
+  .option('-l, --limit <number>', 'Number of verified email leads to inspect (Max 3)', '3')
+  .option('--campaign-id <id>', 'Target specific campaign ID')
+  .action(async (options) => {
+    try {
+      const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
+      const preview = await pilotExecutionService.previewPilot(
+        parseInt(options.limit, 10) || 3,
+        options.campaignId
+      );
+
+      console.log('\n========================================================================================================');
+      console.log('                                  CONTROLLED LIVE PILOT PREVIEW');
+      console.log('========================================================================================================\n');
+
+      if (preview.candidates.length === 0) {
+        console.log('No email candidates found in outreach queue.\n');
+        return;
+      }
+
+      console.log(
+        'Rank'.padEnd(6) +
+        'Business'.padEnd(24) +
+        'Email'.padEnd(28) +
+        'Score'.padEnd(8) +
+        'Class'.padEnd(8) +
+        'Approval'.padEnd(16) +
+        'Eligibility'.padEnd(14) +
+        'Blocking Reason'
+      );
+      console.log(''.padEnd(120, '-'));
+
+      for (let i = 0; i < preview.candidates.length; i++) {
+        const c = preview.candidates[i]!;
+        const eligStr = c.eligible ? 'ELIGIBLE' : 'BLOCKED';
+        console.log(
+          `#${i + 1}`.padEnd(6) +
+          c.businessName.slice(0, 22).padEnd(24) +
+          c.recipientEmail.slice(0, 26).padEnd(28) +
+          `${c.leadScore}/100`.padEnd(8) +
+          c.leadClass.padEnd(8) +
+          c.approvalStatus.slice(0, 14).padEnd(16) +
+          eligStr.padEnd(14) +
+          (c.blockingReason || 'None (Ready for Pilot)')
+        );
+      }
+
+      console.log('\n--------------------------------------------------------------------------------------------------------');
+      console.log(`Eligible: ${preview.eligibleCount}  |  Blocked: ${preview.blockedCount}  |  Remaining Daily Capacity: ${preview.remainingDailyCapacity}/3  |  Network Sends: 0`);
+      console.log('--------------------------------------------------------------------------------------------------------\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed in pilot-preview execution', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('pilot-send')
+  .description('Controlled live pilot execution (Max 3 verified email sends)')
+  .option('-l, --limit <number>', 'Number of verified email leads to send (Max 3)', '3')
+  .option('--confirm', 'Explicit confirmation flag required for pilot execution', false)
+  .option('--dry-run', 'Simulate delivery without real email dispatch', false)
+  .option('--campaign-id <id>', 'Target specific campaign ID')
+  .action(async (options) => {
+    try {
+      const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
+      const report = await pilotExecutionService.executePilot({
+        limit: parseInt(options.limit, 10) || 3,
+        confirm: options.confirm,
+        dryRun: options.dryRun,
+        campaignId: options.campaignId,
+      });
+
+      console.log('\n======================================================================');
+      console.log('                 CONTROLLED PILOT EXECUTION REPORT');
+      console.log('======================================================================\n');
+      console.log(`• Pilot Run ID        : ${report.pilotRunId}`);
+      console.log(`• Execution Message   : ${report.message}`);
+      console.log(`• Safety Mode         : DRY_RUN=${report.safetyState.dryRun}, OUTREACH_ENABLED=${report.safetyState.outreachEnabled}, LIVE_PILOT=${report.safetyState.livePilotEnabled}`);
+      console.log(`• Kill Switch Active  : ${report.safetyState.killSwitchActive ? 'YES (BLOCKED)' : 'NO'}`);
+      console.log(`• Candidates Eligible : ${report.totalEligible}`);
+      console.log(`• Real Emails Sent    : ${report.sent}`);
+      console.log(`• Simulated Sends     : ${report.simulated}`);
+      console.log(`• Blocked / Rejected  : ${report.blocked}`);
+      console.log(`• Failed Transports   : ${report.failed}`);
+      console.log(`• Unknown Results     : ${report.unknown}`);
+      console.log(`• Duplicate Blocked   : ${report.duplicateBlocked}`);
+      console.log(`• Daily Capacity Left : ${report.remainingDailyCapacity}/3\n`);
+
+      if (report.candidates.length > 0) {
+        console.log('PILOT CANDIDATE AUDIT SUMMARY:');
+        console.log('----------------------------------------------------------------------');
+        for (const c of report.candidates) {
+          const statusStr = c.eligible ? 'ELIGIBLE (READY)' : `BLOCKED (${c.blockingReason || 'Validation Failed'})`;
+          console.log(`• ${c.businessName.padEnd(28)} | ${c.recipientEmail.padEnd(28)} | ${statusStr}`);
+        }
+      }
+      console.log('\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed in pilot-send execution', msg);
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+program
+  .command('pilot-report')
+  .description('Display detailed audit report of pilot execution and recent delivery events')
+  .option('-l, --limit <number>', 'Number of recent delivery records to inspect', '10')
+  .action(async (options) => {
+    try {
+      const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
+      const report = await pilotExecutionService.getPilotReport(parseInt(options.limit, 10) || 10);
+
+      console.log('\n======================================================================');
+      console.log('                 CONTROLLED PILOT AUDIT & DELIVERY REPORT');
+      console.log('======================================================================\n');
+      console.log(`• Sent Today          : ${report.sentToday}/3`);
+      console.log(`• Remaining Capacity  : ${report.remainingDailyCapacity}/3`);
+      console.log(`• Kill Switch Active  : ${report.killSwitchActive ? 'YES (BLOCKED)' : 'NO'}`);
+      console.log(`• Safety Flags        : DRY_RUN=${report.safetyState.dryRun}, OUTREACH_ENABLED=${report.safetyState.outreachEnabled}, LIVE_PILOT=${report.safetyState.livePilotEnabled}\n`);
+
+      console.log('RECENT PILOT DISPATCH AUDIT LOG:');
+      console.log('----------------------------------------------------------------------');
+      if (report.recentSends.length === 0) {
+        console.log('No recent pilot sends recorded.\n');
+      } else {
+        for (const send of report.recentSends) {
+          const modeStr = send.dryRun ? '[SIMULATION]' : '[REAL SMTP]';
+          console.log(`┌── [OUTREACH ID: ${send.id}] ${modeStr} ─────────────────────────────────`);
+          console.log(`│ Business   : ${send.businessName}`);
+          console.log(`│ Recipient  : ${send.recipient}`);
+          console.log(`│ Subject    : "${send.subject}"`);
+          console.log(`│ Status     : ${send.status} | Sent At: ${send.sentAt ? send.sentAt.toISOString() : 'Pending'}`);
+          console.log(`│ Message ID : ${send.providerMessageId || 'N/A'}`);
+          console.log(`│ Approver   : ${send.approvedBy || 'HUMAN_OPERATOR'}`);
+          console.log(`└──\n`);
+        }
+      }
+      console.log('\n');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to generate pilot report', msg);
     } finally {
       await disconnectDatabase();
     }

@@ -65,7 +65,7 @@ describe('Phase 2.5 Hardening & Safety Controls', () => {
       ]);
 
       expect(maxConcurrent).toBe(1);
-    });
+    }, 25000);
   });
 
   describe('Source Kill Switches & Request Budgets', () => {

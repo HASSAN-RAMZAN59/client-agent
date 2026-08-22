@@ -24,15 +24,30 @@ export type OutreachStatus =
   | 'FAILED'
   | 'CANCELLED';
 
-export type FollowUpStatus = 'PENDING' | 'SENT' | 'CANCELLED' | 'SKIPPED';
+export type FollowUpStatus =
+  | 'PENDING'
+  | 'FOLLOW_UP_PENDING'
+  | 'FOLLOW_UP_APPROVED'
+  | 'FOLLOW_UP_SENT'
+  | 'FOLLOW_UP_CANCELLED'
+  | 'SENT'
+  | 'CANCELLED'
+  | 'SKIPPED'
+  | 'SUPPRESSED';
 
 export type ReplyClassification =
+  | 'POSITIVE'
   | 'POSITIVE_INTEREST'
+  | 'NEGATIVE'
+  | 'QUESTION'
   | 'MORE_INFO_REQUESTED'
   | 'NOT_INTERESTED'
   | 'WRONG_PERSON'
+  | 'UNSUBSCRIBE'
   | 'BOUNCE'
   | 'AUTO_REPLY'
+  | 'OUT_OF_OFFICE'
+  | 'UNKNOWN'
   | 'UNCLASSIFIED';
 
 // Phase 2.5 Discovery Safety & Classification Types
@@ -506,14 +521,113 @@ export type OutreachLifecycleStatus =
   | 'DRAFT'
   | 'REVIEW_REQUIRED'
   | 'APPROVED'
+  | 'EDITED_AND_APPROVED'
   | 'READY_TO_SEND'
+  | 'SENDING'
   | 'REJECTED'
   | 'SUPPRESSED'
   | 'STALE'
   | 'INVALID'
   | 'EXPIRED'
   | 'SENT'
-  | 'FAILED';
+  | 'FAILED'
+  | 'REPLIED'
+  | 'UNSUBSCRIBED'
+  | 'FOLLOW_UP_PENDING'
+  | 'COMPLETED';
+
+export type ApprovalAction = 'APPROVE' | 'REJECT' | 'EDIT' | 'SKIP' | 'QUIT';
+
+export interface ApprovalAuditRecord {
+  reviewedAt: Date;
+  reviewedBy: string;
+  approvalStatus: 'APPROVED' | 'REJECTED' | 'EDITED_AND_APPROVED' | 'REVIEW_REQUIRED';
+  originalSubject?: string;
+  originalBody?: string;
+  finalSubject?: string;
+  finalBody?: string;
+  rejectionReason?: string;
+  editTimestamp?: Date;
+  approvalTimestamp?: Date;
+}
+
+export interface InboundReplyInput {
+  outreachId: string;
+  senderEmail?: string;
+  recipient?: string;
+  businessId?: string;
+  messageId?: string;
+  threadId?: string;
+  replyBody: string;
+  replyReceivedAt?: Date;
+}
+
+export interface InboundReplyRecord {
+  id: string;
+  outreachId: string;
+  senderEmail?: string;
+  recipient?: string;
+  businessId?: string;
+  messageId?: string;
+  threadId?: string;
+  body: string;
+  classification: ReplyClassification;
+  sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
+  followUpStatus: FollowUpStatus;
+  replyReceivedAt: Date;
+}
+
+export interface PhoneCallScript {
+  businessName: string;
+  phone: string;
+  location: string;
+  score: number;
+  problem: string;
+  recommendedService: RecommendedService;
+  suggestedObjective: string;
+  suggestedOpening: string;
+  websiteStatus: string;
+  nameConfidence: string;
+}
+
+export type LifecycleEvent =
+  | 'DISCOVERED'
+  | 'AUDITED'
+  | 'QUALIFIED'
+  | 'CONTACT_FOUND'
+  | 'PERSONALIZED'
+  | 'REVIEWED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'SEND_BLOCKED'
+  | 'SEND_ATTEMPTED'
+  | 'SEND_SUCCESS'
+  | 'SEND_FAILED'
+  | 'REPLY_RECEIVED'
+  | 'SUPPRESSED';
+
+export interface PreSendValidationResult {
+  allowed: boolean;
+  status: 'ALLOWED' | 'BLOCKED';
+  reasons: string[];
+  warnings: string[];
+  details: {
+    hasHumanApproval: boolean;
+    validBusinessIdentity: boolean;
+    validVerifiedEmail: boolean;
+    isGuessedEmail: boolean;
+    isSuppressed: boolean;
+    isCooldownActive: boolean;
+    validDraft: boolean;
+    noProhibitedClaims: boolean;
+    noHallucinatedMetrics: boolean;
+    correctBusinessName: boolean;
+    correctCity: boolean;
+    senderConfigured: boolean;
+    pilotLimitOk: boolean;
+    killSwitchActive: boolean;
+  };
+}
 
 export interface GateEvaluationResult {
   allowed: boolean;
@@ -783,6 +897,10 @@ export interface LeadQueueItem {
   recommendedService: RecommendedService;
   salesAngleText?: string;
   recommendedChannel: 'PHONE' | 'EMAIL' | 'CONTACT_FORM';
+  suggestedObjective?: string;
+  suggestedOpening?: string;
+  websiteStatus?: string;
+  nameConfidence?: string;
   status: string;
 }
 

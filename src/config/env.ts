@@ -217,6 +217,57 @@ const envSchema = z.object({
     })
     .default(false),
 
+  // Phase 10 Controlled Live Pilot & Emergency Safety Controls
+  LIVE_PILOT_ENABLED: z
+    .string()
+    .or(z.boolean())
+    .transform((val) => {
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    })
+    .default(false),
+
+  LIVE_PILOT_MAX_SENDS_PER_RUN: z
+    .string()
+    .or(z.number())
+    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
+    .refine((val) => !isNaN(val) && val >= 1 && val <= 10, 'LIVE_PILOT_MAX_SENDS_PER_RUN must be between 1 and 10')
+    .default(3),
+
+  LIVE_PILOT_MAX_SENDS_PER_DAY: z
+    .string()
+    .or(z.number())
+    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
+    .refine((val) => !isNaN(val) && val >= 1 && val <= 20, 'LIVE_PILOT_MAX_SENDS_PER_DAY must be between 1 and 20')
+    .default(3),
+
+  LIVE_PILOT_REQUIRE_APPROVAL: z
+    .string()
+    .or(z.boolean())
+    .transform((val) => {
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    })
+    .default(true),
+
+  OUTREACH_KILL_SWITCH: z
+    .string()
+    .or(z.boolean())
+    .transform((val) => {
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    })
+    .default(true),
+
+  AUTO_FOLLOWUP_ENABLED: z
+    .string()
+    .or(z.boolean())
+    .transform((val) => {
+      if (typeof val === 'boolean') return val;
+      return val === 'true' || val === '1';
+    })
+    .default(false),
+
   OUTREACH_BUSINESS_COOLDOWN_DAYS: z
     .string()
     .or(z.number())

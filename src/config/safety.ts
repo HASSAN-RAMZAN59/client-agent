@@ -7,6 +7,13 @@ export interface SafetyPolicy {
   maxRetries: number;
   cooldownMs: number;
   maxEmailsPerRun: number;
+  // Phase 10 Controlled Live Pilot & Emergency Kill Switch
+  livePilotEnabled: boolean;
+  livePilotMaxSendsPerRun: number;
+  livePilotMaxSendsPerDay: number;
+  livePilotRequireApproval: boolean;
+  outreachKillSwitch: boolean;
+  autoFollowupEnabled: boolean;
   // Phase 2.5 Discovery safety
   discoveryOsmEnabled: boolean;
   discoveryDdgEnabled: boolean;
@@ -45,6 +52,12 @@ export class SafetyControls {
       maxRetries: cfg.MAX_RETRIES,
       cooldownMs: cfg.COOLDOWN_MS,
       maxEmailsPerRun: cfg.MAX_EMAILS_PER_RUN,
+      livePilotEnabled: cfg.LIVE_PILOT_ENABLED,
+      livePilotMaxSendsPerRun: cfg.LIVE_PILOT_MAX_SENDS_PER_RUN,
+      livePilotMaxSendsPerDay: cfg.LIVE_PILOT_MAX_SENDS_PER_DAY,
+      livePilotRequireApproval: cfg.LIVE_PILOT_REQUIRE_APPROVAL,
+      outreachKillSwitch: cfg.OUTREACH_KILL_SWITCH,
+      autoFollowupEnabled: cfg.AUTO_FOLLOWUP_ENABLED,
       discoveryOsmEnabled: cfg.DISCOVERY_OSM_ENABLED,
       discoveryDdgEnabled: cfg.DISCOVERY_DDG_ENABLED,
       discoveryUserAgent: cfg.DISCOVERY_USER_AGENT,
@@ -80,6 +93,14 @@ export class SafetyControls {
     return this.policy.isDryRun;
   }
 
+  public isKillSwitchActive(): boolean {
+    return this.policy.outreachKillSwitch;
+  }
+
+  public updatePolicy(partial: Partial<SafetyPolicy>): void {
+    this.policy = { ...this.policy, ...partial };
+  }
+
   public assertAllowedBatchSize(count: number, label: string = 'Operation'): void {
     if (count > this.policy.maxItemsPerRun) {
       throw new Error(
@@ -92,6 +113,18 @@ export class SafetyControls {
     if (count > this.policy.maxEmailsPerRun) {
       throw new Error(
         `Safety Violation: Email batch size of ${count} exceeds MAX_EMAILS_PER_RUN limit of ${this.policy.maxEmailsPerRun}.`
+      );
+    }
+  }
+
+  public assertPilotSendAllowed(count: number): void {
+    if (this.policy.outreachKillSwitch) {
+      throw new Error('OUTREACH KILL SWITCH ACTIVE — NO OUTBOUND MESSAGES PERMITTED');
+    }
+
+    if (count > this.policy.livePilotMaxSendsPerRun) {
+      throw new Error(
+        `Safety Violation: Pilot send count ${count} exceeds LIVE_PILOT_MAX_SENDS_PER_RUN limit of ${this.policy.livePilotMaxSendsPerRun}.`
       );
     }
   }

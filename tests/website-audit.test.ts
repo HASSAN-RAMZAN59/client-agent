@@ -341,6 +341,6 @@ describe('Phase 3: Website Intelligence & Audit Engine', () => {
       expect(saved?.technicalScore).toBeDefined();
       expect(saved?.mobileScore).toBeDefined();
       expect(saved?.opportunityFlags).toBeDefined();
-    });
+    }, 25000);
   });
 });

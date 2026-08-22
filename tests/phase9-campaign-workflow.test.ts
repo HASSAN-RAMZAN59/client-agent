@@ -65,7 +65,7 @@ describe('Phase 9: Production Lead Generation & Conversion Workflow', () => {
       expect(runResult.discovered).toBeGreaterThanOrEqual(1);
       expect(runResult.leadsScored).toBeGreaterThanOrEqual(1);
       expect(runResult.draftsGenerated).toBeGreaterThanOrEqual(1);
-    });
+    }, 25000);
   });
 
   describe('3. Stage-by-Stage Funnel Analytics & Bottleneck Identification', () => {

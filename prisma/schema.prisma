@@ -187,7 +187,7 @@ model Contact {
 }
 
 // ------------------------------------------------------------------------------
-// 5. Outreach Model (Phase 6.5 Hardened Lifecycle)
+// 5. Outreach Model (Phase 6.5 & Phase 10 Hardened Lifecycle)
 // Tracks personalized message drafts prepared for qualified leads.
 // ------------------------------------------------------------------------------
 model Outreach {
@@ -215,11 +215,19 @@ model Outreach {
   rejectionReason      String?     // Explanation if draft was rejected or review required
   approvedAt           DateTime?   // Timestamp of explicit human approval
   approvedBy           String?     // Identifier of human operator who approved
+  approvalStatus       String?     // REVIEW_REQUIRED, APPROVED, REJECTED, EDITED_AND_APPROVED
+  originalSubject      String?     // Original draft subject before edits
+  originalBody         String?     // Original draft body before edits
+  finalSubject         String?     // Final edited subject
+  finalBody            String?     // Final edited body
+  editTimestamp        DateTime?   // Timestamp when human edited draft
+  approvalTimestamp    DateTime?   // Timestamp when approved
   expiresAt            DateTime?   // Staleness timestamp
   attemptedAt          DateTime?   // Timestamp of latest delivery attempt
   providerMessageId    String?     // Transport message identifier (e.g. SMTP msg-id)
+  threadId             String?     // Thread identifier for conversation tracking
   dryRun               Boolean     @default(true) // Whether dispatch was a dry-run simulation
-  status               String      @default("DRAFT") // DRAFT, REVIEW_REQUIRED, APPROVED, READY_TO_SEND, SENDING, SENT, FAILED, BOUNCED, REPLIED, UNSUBSCRIBED, SUPPRESSED, REJECTED, STALE
+  status               String      @default("DRAFT") // DRAFT, REVIEW_REQUIRED, APPROVED, EDITED_AND_APPROVED, READY_TO_SEND, SENDING, SENT, FAILED, BOUNCED, REPLIED, UNSUBSCRIBED, SUPPRESSED, REJECTED, STALE
   sentAt               DateTime?
   error                String?
   createdAt            DateTime    @default(now())
@@ -254,7 +262,7 @@ model FollowUp {
   outreachId     String
   sequenceNumber Int       @default(1)
   scheduledAt    DateTime
-  status         String    @default("PENDING") // PENDING, SENT, CANCELLED, SKIPPED
+  status         String    @default("PENDING") // PENDING, SENT, CANCELLED, SKIPPED, FOLLOW_UP_APPROVED
   sentAt         DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -269,26 +277,35 @@ model FollowUp {
 }
 
 // ------------------------------------------------------------------------------
-// 7. Reply Model
+// 7. Reply Model (Phase 10 Expanded)
 // Records incoming responses and AI classification outcomes.
 // ------------------------------------------------------------------------------
 model Reply {
-  id             String    @id @default(uuid())
-  outreachId     String
-  senderEmail    String?
-  body           String?
-  classification String    @default("NEUTRAL") // POSITIVE, NEGATIVE, NOT_INTERESTED, WRONG_PERSON, OUT_OF_OFFICE, NEUTRAL
-  confidence     Float     @default(0.0)
-  intentCategory String?   // CALL_REQUEST, PRICING_QUESTION, AUDIT_REQUEST, UNSUBSCRIBE
-  rawPayload     String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  outreachId          String
+  senderEmail         String?
+  recipient           String?
+  businessId          String?
+  messageId           String?
+  threadId            String?
+  body                String?
+  classification      String    @default("UNKNOWN") // POSITIVE, NEGATIVE, QUESTION, NOT_INTERESTED, UNSUBSCRIBE, OUT_OF_OFFICE, UNKNOWN
+  replyClassification String    @default("UNKNOWN")
+  confidence          Float     @default(0.0)
+  sentiment           String?   // POSITIVE, NEUTRAL, NEGATIVE
+  intentCategory      String?   // CALL_REQUEST, PRICING_QUESTION, AUDIT_REQUEST, UNSUBSCRIBE
+  followUpStatus      String    @default("FOLLOW_UP_PENDING") // FOLLOW_UP_PENDING, FOLLOW_UP_APPROVED, FOLLOW_UP_SENT, FOLLOW_UP_CANCELLED, SUPPRESSED
+  replyReceivedAt     DateTime? @default(now())
+  rawPayload          String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   // Relationships
-  outreach       Outreach  @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreach            Outreach  @relation(fields: [outreachId], references: [id], onDelete: Cascade)
 
   @@index([outreachId])
   @@index([classification])
+  @@index([replyClassification])
   @@index([createdAt])
   @@map("replies")
 }

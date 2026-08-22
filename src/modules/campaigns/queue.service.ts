@@ -92,6 +92,14 @@ export class QueueService {
         recommendedChannel = 'PHONE';
       }
 
+      let suggestedObjective = 'Confirm whether the business currently has an official website and identify the person responsible for website/marketing decisions.';
+      let suggestedOpening = `Hello, I was researching local ${b?.category || 'dental'} practices in ${b?.city || 'the area'} and wanted to check who manages your web presence and patient inquiries.`;
+
+      if (hasWeb) {
+        suggestedObjective = 'Connect with the practice manager to share a brief 2-minute overview of mobile layout refinements.';
+        suggestedOpening = `Hi, I was looking over ${b?.name}'s website and had a quick observation regarding mobile visitor navigation for ${b?.city}.`;
+      }
+
       return {
         id: l.id,
         businessId: l.businessId,
@@ -114,6 +122,10 @@ export class QueueService {
         recommendedService: (l.recommendedService as RecommendedService) || 'WEBSITE_IMPROVEMENT',
         salesAngleText,
         recommendedChannel,
+        suggestedObjective,
+        suggestedOpening,
+        websiteStatus: hasWeb ? (audit?.status || 'AUDITED') : 'NO_WEBSITE',
+        nameConfidence: 'HIGH',
         status: l.status,
       };
     });
