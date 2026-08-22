@@ -22,6 +22,8 @@ export interface LivePilotEligibilityOptions {
   checkDailyLimit?: boolean;
   strictLiveMode?: boolean;
   campaignId?: string;
+  allowTestRecord?: boolean;
+  enforceTestCheck?: boolean;
 }
 
 export interface LivePilotEligibilityResult extends PreSendValidationResult {
@@ -147,6 +149,18 @@ export class PreSendValidator {
     const reasons: string[] = [];
     const warnings: string[] = [];
 
+    // 0. Test Data Prohibited Gate (Absolute Isolation Barrier)
+    if (!options?.allowTestRecord) {
+      const isTest = this.checkIfTestRecord({
+        business,
+        contactValue: outreach.primaryContactValue || lead?.primaryContactValue,
+        channel: outreach.channel,
+      });
+      if (isTest) {
+        reasons.push('TEST_DATA_PROHIBITED');
+      }
+    }
+
     // 1. Channel Exclusivity Check (Strictly EMAIL)
     if (outreach.channel === 'PHONE') {
       reasons.push('PHONE_CHANNEL');
@@ -200,6 +214,51 @@ export class PreSendValidator {
 
     if (isGuessed) {
       reasons.push('GUESSED_EMAIL', 'GUESSED_EMAIL_PROHIBITED');
+    }
+
+    // 5b. Location / Branch Mismatch Check
+    if (contactValue && business?.city) {
+      const emailPrefix = contactValue.split('@')[0]?.toLowerCase().trim() || '';
+      const bizCity = business.city.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const knownBranchCities = [
+        'cambridge',
+        'ottawa',
+        'montreal',
+        'calgary',
+        'vancouver',
+        'edmonton',
+        'hamilton',
+        'london',
+        'windsor',
+        'kitchener',
+        'waterloo',
+        'brampton',
+        'mississauga',
+        'markham',
+        'vaughan',
+        'dallas',
+        'houston',
+        'austin',
+        'sanantonio',
+        'chicago',
+        'newyork',
+        'miami',
+        'seattle',
+      ];
+
+      for (const city of knownBranchCities) {
+        if (
+          bizCity !== city &&
+          (emailPrefix === city ||
+            emailPrefix.startsWith(city + '.') ||
+            emailPrefix.startsWith(city + '_') ||
+            emailPrefix.startsWith(city + '-'))
+        ) {
+          reasons.push('LOCATION_CONTACT_MISMATCH');
+          break;
+        }
+      }
     }
 
     // 6. Suppression Check
@@ -296,6 +355,71 @@ export class PreSendValidator {
       warnings,
       details,
     };
+  }
+
+  public checkIfTestRecord(params: {
+    business?: { name?: string | null; source?: string | null } | null;
+    contactValue?: string | null;
+    channel?: string | null;
+  }): boolean {
+    const { business, contactValue, channel } = params;
+
+    if (channel && channel.toLowerCase().includes('test')) return true;
+
+    if (business) {
+      const source = (business.source || '').toLowerCase();
+      if (
+        source.startsWith('test') ||
+        source.includes('mock') ||
+        source.includes('fixture') ||
+        source === 'test_suite'
+      ) {
+        return true;
+      }
+
+      const name = (business.name || '').toLowerCase();
+      const testPatterns = [
+        /^test\b/i,
+        /^execution biz/i,
+        /^contact test/i,
+        /^batchtest/i,
+        /^phase11/i,
+        /^approved biz/i,
+        /^cooldown biz/i,
+        /^suppressed/i,
+        /\btest biz\b/i,
+        /\bpersonalize test\b/i,
+        /\bexpired biz\b/i,
+        /\bsuppressed lead biz\b/i,
+        /\bgate biz\b/i,
+        /\bduplicate biz\b/i,
+        /\bpilot test\b/i,
+        /\bmock biz\b/i,
+        /\bfixture biz\b/i,
+        /\btest clinic\b/i,
+        /\bscoring test\b/i,
+        /\bunittest\b/i,
+      ];
+
+      if (testPatterns.some((pattern) => pattern.test(name))) {
+        return true;
+      }
+    }
+
+    if (contactValue) {
+      const val = contactValue.toLowerCase();
+      if (
+        val.endsWith('@example.com') ||
+        val.includes('testdentalcontacts') ||
+        val.includes('test-') ||
+        val.startsWith('test@') ||
+        val.startsWith('unittest')
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private getDefaultDetails(passed: boolean) {

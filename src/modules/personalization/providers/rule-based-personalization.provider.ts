@@ -118,6 +118,35 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
     };
   }
 
+  private formatSignature(sender: { name: string; company?: string }): string {
+    return sender.company && sender.company.trim().length > 0
+      ? `${sender.name}\n${sender.company}`
+      : sender.name;
+  }
+
+  private cleanEvidenceText(text?: string): string {
+    if (!text) return 'a few potential layout optimization opportunities';
+    let cleaned = text.trim();
+    
+    // Remove robotic internal labels and rewrite into natural phrasing
+    cleaned = cleaned.replace(/^Mobile browser audit detected horizontal layout overflow or non-responsive elements\.?/i, 'the site shows horizontal overflow on a mobile-sized screen');
+    cleaned = cleaned.replace(/^Mobile audit recorded approximately ([\d.]+s) initial load time\.?/i, 'my mobile audit recorded an initial load time of about $1');
+    cleaned = cleaned.replace(/^Audit probe challenged by WAF\.?/i, 'a few technical navigation items on mobile devices');
+    cleaned = cleaned.replace(/^Critical Page Load Latency\.?/i, 'the mobile page load latency');
+    cleaned = cleaned.replace(/^Slow initial page load speed \(> 4s\) causes mobile bounce rates\.?/i, 'the initial mobile page load speed is slower than recommended');
+
+    // Remove any trailing dots
+    cleaned = cleaned.replace(/\.+$/, '');
+    return cleaned;
+  }
+
+  private cleanOpportunityText(text?: string): string {
+    if (!text) return 'targeted technical and performance refinements';
+    let cleaned = text.trim();
+    cleaned = cleaned.replace(/\.+$/, '');
+    return cleaned;
+  }
+
   private generateVariantA(params: {
     businessName: string;
     city: string;
@@ -137,6 +166,10 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
       `Observation for ${businessName}`,
     ];
 
+    const evidence = this.cleanEvidenceText(salesAngle.evidence[0]);
+    const opportunity = this.cleanOpportunityText(salesAngle.opportunity);
+    const signature = this.formatSignature(sender);
+
     let body = '';
     if (hasNoWebsite) {
       body = `${greeting}
@@ -147,21 +180,21 @@ I build clean, mobile-friendly websites that make it easy for local clients to f
 
 Would you be open to seeing a quick concept preview for ${businessName}?
 
-Best,
-${sender.name}
-${sender.company}`;
+Best regards,
+
+${signature}`;
     } else {
       body = `${greeting}
 
-I was taking a look at ${businessName}'s website and noticed ${salesAngle.evidence[0] || 'a few potential layout optimization opportunities'}.
+I was taking a look at ${businessName}'s website and noticed ${evidence}.
 
-There are a couple of small refinements around ${salesAngle.opportunity.toLowerCase()} that could help create a smoother experience for mobile visitors.
+There are a couple of small refinements around ${opportunity.toLowerCase()} that could help create a smoother experience for mobile visitors.
 
 Would you be open to me sharing a quick 2-minute breakdown of what I found?
 
-Best,
-${sender.name}
-${sender.company}`;
+Best regards,
+
+${signature}`;
     }
 
     return {
@@ -191,6 +224,10 @@ ${sender.company}`;
       `Question for ${businessName}`,
     ];
 
+    const evidence = this.cleanEvidenceText(salesAngle.evidence[0]);
+    const opportunity = this.cleanOpportunityText(salesAngle.opportunity);
+    const signature = this.formatSignature(sender);
+
     let body = '';
     if (hasNoWebsite) {
       body = `${greeting}
@@ -204,14 +241,14 @@ I work with local businesses to design straightforward, professional websites wi
 Would you be open to me sending over a short outline of what a modern site setup would look like for ${businessName}?
 
 Best regards,
-${sender.name}
-${sender.company}`;
+
+${signature}`;
     } else {
       body = `${greeting}
 
-I was reviewing ${businessName}'s online presence and noticed ${salesAngle.evidence[0] || 'a few opportunities for performance improvement'}.
+I was reviewing ${businessName}'s online presence and noticed ${evidence}.
 
-Specifically, ${salesAngle.opportunity.toLowerCase()}
+Specifically, ${opportunity.toLowerCase()}.
 
 ${salesAngle.businessImpact}
 
@@ -220,8 +257,8 @@ I work on web performance and mobile development for local businesses. I'd be ha
 Would you be open to taking a look?
 
 Best regards,
-${sender.name}
-${sender.company}`;
+
+${signature}`;
     }
 
     return {
@@ -252,6 +289,8 @@ ${sender.company}`;
       `Notes on ${businessName}'s mobile performance`,
     ];
 
+    const signature = this.formatSignature(sender);
+
     let body = '';
     if (hasNoWebsite) {
       body = `${greeting}
@@ -266,12 +305,12 @@ For local service businesses, having an accessible web presence is essential for
 I specialize in building clean, high-performing websites for local businesses. Would you be open to a quick 5-minute conversation or a sample design preview this week?
 
 Best regards,
-${sender.name}
-${sender.company}`;
+
+${signature}`;
     } else {
       const evidenceBullets = salesAngle.evidence
         .slice(0, 3)
-        .map((e) => ` • ${e}`)
+        .map((e) => ` • ${this.cleanEvidenceText(e)}`)
         .join('\n');
 
       body = `${greeting}
@@ -287,8 +326,8 @@ I specialize in technical website optimization and mobile application developmen
 Would you be interested in me sending over a short breakdown of the recommended fixes?
 
 Best regards,
-${sender.name}
-${sender.company}`;
+
+${signature}`;
     }
 
     return {

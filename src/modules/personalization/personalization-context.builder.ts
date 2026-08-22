@@ -11,6 +11,7 @@ import {
   ContactSourceType,
 } from '../../types/index.js';
 import { prisma } from '../../database/index.js';
+import { config } from '../../config/env.js';
 
 export function translateOpportunityFlagToBusinessLanguage(flag: OpportunityFlag): string {
   switch (flag) {
@@ -148,9 +149,9 @@ export async function buildPersonalizationContext(leadId: string): Promise<Perso
       sourceType: (lead.contactDiscoverySource || topContact?.sourceType || null) as ContactSourceType | null,
     },
     sender: {
-      name: process.env.SENDER_NAME || 'Alex Morgan',
-      company: process.env.SENDER_COMPANY || 'ModernWeb Studio',
-      email: process.env.SENDER_EMAIL || 'alex@modernwebstudio.com',
+      name: config.SMTP_FROM_NAME || process.env.SENDER_NAME || 'HASSAN RAMZAN',
+      company: process.env.SENDER_COMPANY || '',
+      email: config.SMTP_FROM_EMAIL || process.env.SENDER_EMAIL || 'hassanramzan59@gmail.com',
     },
   };
 }

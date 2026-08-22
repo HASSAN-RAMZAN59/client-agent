@@ -168,8 +168,8 @@ describe('Targeted Commercial Quality Fixes (Post-Phase 9)', () => {
           status: 'VERIFIED_PUBLIC',
         },
         sender: {
-          name: 'Alex Morgan',
-          company: 'ModernWeb Studio',
+          name: 'HASSAN RAMZAN',
+          company: '',
         },
       });
 

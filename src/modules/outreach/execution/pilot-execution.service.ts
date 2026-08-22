@@ -16,6 +16,8 @@ export interface PilotExecutionParams {
   dryRun?: boolean;
   campaignId?: string;
   pilotRunId?: string;
+  allowTestRecord?: boolean;
+  includeTest?: boolean;
 }
 
 export interface PilotCandidateSummary {
@@ -98,13 +100,60 @@ export class PilotExecutionService {
     this.mockProvider = new MockOutreachProvider();
   }
 
-  public async previewPilot(limit: number = 3, campaignId?: string): Promise<PilotPreviewReport> {
+  public async previewPilot(
+    limit: number = 3,
+    campaignId?: string,
+    options?: { includeTest?: boolean; allowTestRecord?: boolean }
+  ): Promise<PilotPreviewReport> {
     const policy = safetyControls.getPolicy();
     const hardLimit = Math.min(limit, config.LIVE_PILOT_MAX_SENDS_PER_RUN, 3);
-    const where: any = { channel: 'EMAIL' };
+    const includeTest = options?.includeTest ?? false;
+
+    const where: any = {
+      channel: 'EMAIL',
+      primaryContactValue: { contains: '@' },
+      status: { in: ['DRAFT', 'REVIEW_REQUIRED', 'APPROVED', 'READY_TO_SEND'] },
+    };
+
+    if (!includeTest) {
+      where.lead = {
+        business: {
+          NOT: [
+            { source: { startsWith: 'test' } },
+            { source: 'TEST_SUITE' },
+            { name: { startsWith: 'Test' } },
+            { name: { startsWith: 'Execution Biz' } },
+            { name: { startsWith: 'Contact Test' } },
+            { name: { startsWith: 'BatchTest' } },
+            { name: { startsWith: 'Phase11' } },
+            { name: { startsWith: 'Approved Biz' } },
+            { name: { startsWith: 'Cooldown Biz' } },
+            { name: { startsWith: 'Suppressed' } },
+            { name: { contains: 'Test Biz' } },
+            { name: { contains: 'Personalize Test' } },
+            { name: { contains: 'Expired Biz' } },
+            { name: { contains: 'Suppressed Lead Biz' } },
+            { name: { contains: 'Gate Biz' } },
+            { name: { contains: 'Duplicate Biz' } },
+            { name: { contains: 'Pilot Test' } },
+            { name: { contains: 'Mock Biz' } },
+            { name: { contains: 'Fixture Biz' } },
+            { name: { contains: 'Test Clinic' } },
+            { name: { contains: 'Scoring Test' } },
+            { name: { contains: 'UnitTest' } },
+          ],
+        },
+      };
+    }
 
     if (campaignId) {
-      where.lead = { business: { campaignId } };
+      where.lead = {
+        ...(where.lead || {}),
+        business: {
+          ...(where.lead?.business || {}),
+          campaignId,
+        },
+      };
     }
 
     const outreaches = await this.db.outreach.findMany({
@@ -121,15 +170,19 @@ export class PilotExecutionService {
           },
         },
       },
-      take: hardLimit,
+      take: hardLimit * 5,
       orderBy: { lead: { leadOpportunityScore: 'desc' } },
     });
 
     const candidates: PilotCandidateSummary[] = [];
+    const seenLeads = new Set<string>();
     let eligibleCount = 0;
     let blockedCount = 0;
 
     for (const o of outreaches) {
+      if (seenLeads.has(o.leadId)) continue;
+      if (candidates.length >= hardLimit) break;
+      seenLeads.add(o.leadId);
       const b = o.lead?.business;
       const l = o.lead;
       const matchingContact = b?.contacts?.find((c) => c.type === 'EMAIL');
@@ -252,7 +305,10 @@ export class PilotExecutionService {
       };
     }
 
-    const preview = await this.previewPilot(effectiveLimit, params.campaignId);
+    const preview = await this.previewPilot(effectiveLimit, params.campaignId, {
+      allowTestRecord: params.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
+      includeTest: params.includeTest ?? params.allowTestRecord ?? false,
+    });
     const candidates = preview.candidates;
 
     // 2. Explicit --confirm check
@@ -354,6 +410,7 @@ export class PilotExecutionService {
 
       const eligibility = await this.validator.isLivePilotEligible(candidate.outreachId, {
         checkEnvFlags: false,
+        allowTestRecord: params.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
       });
 
       if (!eligibility.eligible) {

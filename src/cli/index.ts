@@ -1870,10 +1870,11 @@ program
 program
   .command('review-interactive')
   .description('Interactive human review interface for pending outreach drafts')
-  .action(async () => {
+  .option('--include-test', 'Include test fixtures in review queue (Default: false)', false)
+  .action(async (options) => {
     try {
       const { interactiveReviewerService } = await import('../modules/outreach/review/interactive-reviewer.service.js');
-      await interactiveReviewerService.startInteractiveCli();
+      await interactiveReviewerService.startInteractiveCli({ includeTest: Boolean(options.includeTest) });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Failed in interactive review', msg);
@@ -2055,18 +2056,25 @@ program
       const isValid =
         hostConfigured && userConfigured && passConfigured && fromEmailConfigured;
 
+      let validLabel = 'NO (MISSING CREDENTIALS)';
+      if (isValid) {
+        validLabel = 'YES (READY)';
+      } else if (!passConfigured && hostConfigured && userConfigured && fromEmailConfigured) {
+        validLabel = 'NO (MISSING PASSWORD)';
+      }
+
       console.log('\n======================================================================');
       console.log('                   SMTP CONFIGURATION STATUS AUDIT');
       console.log('======================================================================\n');
       console.log(`SMTP Provider          : SmtpDeliveryProvider`);
-      console.log(`Host Configured        : ${hostConfigured ? config.SMTP_HOST : 'NO (NOT CONFIGURED)'}`);
+      console.log(`Host Configured        : ${hostConfigured ? 'YES' : 'NO'}`);
       console.log(`Port                   : ${config.SMTP_PORT}`);
-      console.log(`Secure (SSL/TLS)       : ${config.SMTP_SECURE ? 'YES' : 'NO'}`);
-      console.log(`Username Configured    : ${userConfigured ? config.SMTP_USER : 'NO (NOT CONFIGURED)'}`);
+      console.log(`Secure                 : ${config.SMTP_SECURE ? 'YES' : 'NO'}`);
+      console.log(`Username Configured    : ${userConfigured ? 'YES' : 'NO'}`);
       console.log(`Password Configured    : ${passConfigured ? 'YES' : 'NO'}`);
-      console.log(`From Name              : ${fromNameConfigured ? config.SMTP_FROM_NAME : 'NO (NOT CONFIGURED)'}`);
-      console.log(`From Email             : ${fromEmailConfigured ? config.SMTP_FROM_EMAIL : 'NO (NOT CONFIGURED)'}`);
-      console.log(`Configuration Valid    : ${isValid ? 'YES (READY)' : 'NO (MISSING CREDENTIALS)'}`);
+      console.log(`From Name              : ${fromNameConfigured ? config.SMTP_FROM_NAME : 'NO'}`);
+      console.log(`From Email             : ${fromEmailConfigured ? config.SMTP_FROM_EMAIL : 'NO'}`);
+      console.log(`Configuration Valid    : ${validLabel}`);
       console.log(`Network Send Performed : NO\n`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -2078,10 +2086,14 @@ program
   .command('review-queue')
   .description('Display pending human review queue with draft previews and quality gates')
   .option('-l, --limit <number>', 'Number of items to inspect', '10')
+  .option('--include-test', 'Include test fixtures in review queue (Default: false)', false)
   .action(async (options) => {
     try {
       const { queueService } = await import('../modules/campaigns/queue.service.js');
-      const items = await queueService.getReviewQueue(parseInt(options.limit, 10) || 10);
+      const items = await queueService.getReviewQueue(
+        parseInt(options.limit, 10) || 10,
+        { includeTest: Boolean(options.includeTest) }
+      );
 
       console.log('\n======================================================================');
       console.log('                 HUMAN OUTREACH REVIEW QUEUE');

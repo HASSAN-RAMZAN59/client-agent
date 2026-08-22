@@ -87,7 +87,7 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
         channel: 'EMAIL',
         variant: 'VARIANT_B_STANDARD',
         subject: `Website observation for Phase11 Valid Dental ${testSuffix}`,
-        body: `Hello Team,\n\nI was looking over Phase11 Valid Dental ${testSuffix} in Dallas and noticed a few mobile menu improvements.\n\nBest,\nAlex Morgan`,
+        body: `Hello Team,\n\nI was looking over Phase11 Valid Dental ${testSuffix} in Dallas and noticed a few mobile menu improvements.\n\nBest regards,\n\nHASSAN RAMZAN`,
         primaryContactValue: testRecipient,
         primaryContactType: 'EMAIL',
         status: 'APPROVED',
@@ -280,7 +280,14 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
       (config as any).OUTREACH_ENABLED = true;
       (config as any).LIVE_PILOT_ENABLED = true;
 
-      const report = await executor.executePilot({ limit: 1, confirm: true, dryRun: false, campaignId: testCampaignId });
+      const report = await executor.executePilot({
+        limit: 1,
+        confirm: true,
+        dryRun: false,
+        campaignId: testCampaignId,
+        includeTest: true,
+        allowTestRecord: true,
+      });
       expect(report.sent).toBeGreaterThanOrEqual(1);
 
       const record = await db.outreach.findUnique({ where: { id: testOutreachId } });
@@ -311,7 +318,14 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
       (config as any).OUTREACH_ENABLED = true;
       (config as any).LIVE_PILOT_ENABLED = true;
 
-      const report = await executor.executePilot({ limit: 1, confirm: true, dryRun: false, campaignId: testCampaignId });
+      const report = await executor.executePilot({
+        limit: 1,
+        confirm: true,
+        dryRun: false,
+        campaignId: testCampaignId,
+        includeTest: true,
+        allowTestRecord: true,
+      });
       expect(report.failed).toBeGreaterThanOrEqual(1);
 
       const record = await db.outreach.findUnique({ where: { id: testOutreachId } });
@@ -341,7 +355,14 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
       (config as any).OUTREACH_ENABLED = true;
       (config as any).LIVE_PILOT_ENABLED = true;
 
-      const report = await executor.executePilot({ limit: 1, confirm: true, dryRun: false, campaignId: testCampaignId });
+      const report = await executor.executePilot({
+        limit: 1,
+        confirm: true,
+        dryRun: false,
+        campaignId: testCampaignId,
+        includeTest: true,
+        allowTestRecord: true,
+      });
       expect(report.attempted).toBe(1);
 
       (config as any).OUTREACH_ENABLED = originalOutreach;
@@ -361,7 +382,14 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
       (config as any).OUTREACH_ENABLED = true;
       (config as any).LIVE_PILOT_ENABLED = true;
 
-      const report = await executor.executePilot({ limit: 1, confirm: true, dryRun: false, campaignId: testCampaignId });
+      const report = await executor.executePilot({
+        limit: 1,
+        confirm: true,
+        dryRun: false,
+        campaignId: testCampaignId,
+        includeTest: true,
+        allowTestRecord: true,
+      });
       expect(report.unknown).toBeGreaterThanOrEqual(1);
 
       (config as any).OUTREACH_ENABLED = originalOutreach;
@@ -439,6 +467,82 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
       expect(outreach?.approvalStatus).toBe('APPROVED');
       expect(outreach?.subject).toContain('Website observation for');
       expect(outreach?.body).toBeDefined();
+    });
+  });
+
+  describe('5. Real Sender Identity, Branch Matching & Draft Quality Hardening', () => {
+    it('27. default sender identity uses HASSAN RAMZAN and hassanramzan59@gmail.com', () => {
+      expect(config.SMTP_FROM_NAME).toBe('HASSAN RAMZAN');
+      expect(config.SMTP_FROM_EMAIL).toBe('hassanramzan59@gmail.com');
+      expect(config.SMTP_HOST).toBe('smtp.gmail.com');
+    });
+
+    it('28. draft generator formats clean signature without placeholder agency', async () => {
+      const { PersonalizationService } = await import('../src/modules/personalization/personalization.service.js');
+      const service = new PersonalizationService(db);
+      const res = await service.personalizeLead(testLeadId);
+
+      for (const variant of res.variants) {
+        expect(variant.body).toContain('HASSAN RAMZAN');
+        expect(variant.body).not.toContain('ModernWeb Studio');
+        expect(variant.body).not.toContain('Alex Morgan');
+        expect(variant.body).not.toContain('..'); // No double periods
+      }
+    });
+
+    it('29. multi-location mismatch (e.g. cambridge@ on Toronto business) is BLOCKED with LOCATION_CONTACT_MISMATCH', async () => {
+      const mismatchBiz = await db.business.create({
+        data: {
+          name: `Toronto Multi-Location Clinic ${testSuffix}`,
+          category: 'Dentist',
+          city: 'Toronto',
+          country: 'CA',
+          website: 'https://multibranch.ca',
+          source: 'test_phase11',
+        },
+      });
+
+      const mismatchContact = await db.contact.create({
+        data: {
+          businessId: mismatchBiz.id,
+          value: 'cambridge@multibranch.ca',
+          email: 'cambridge@multibranch.ca',
+          type: 'EMAIL',
+          classification: 'BUSINESS_GENERIC',
+          status: 'VERIFIED_PUBLIC',
+          isVerified: true,
+        },
+      });
+
+      const mismatchLead = await db.lead.create({
+        data: {
+          businessId: mismatchBiz.id,
+          leadOpportunityScore: 75,
+          classification: 'WARM',
+          primaryContactType: 'EMAIL',
+          primaryContactValue: mismatchContact.value,
+        },
+      });
+
+      const mismatchOutreach = await db.outreach.create({
+        data: {
+          leadId: mismatchLead.id,
+          channel: 'EMAIL',
+          variant: 'VARIANT_B_STANDARD',
+          subject: 'Website observation for Toronto Multi-Location Clinic',
+          body: 'Hello Team,\n\nI was reviewing the website...\n\nBest regards,\n\nHASSAN RAMZAN',
+          primaryContactValue: mismatchContact.value,
+          primaryContactType: 'EMAIL',
+          status: 'APPROVED',
+          approvalStatus: 'APPROVED',
+          approvedAt: new Date(),
+          approvedBy: 'HUMAN_OPERATOR',
+        },
+      });
+
+      const res = await validator.isLivePilotEligible(mismatchOutreach.id);
+      expect(res.eligible).toBe(false);
+      expect(res.reasons).toContain('LOCATION_CONTACT_MISMATCH');
     });
   });
 });

@@ -20,6 +20,8 @@ export interface InteractiveReviewItem {
   contactValue: string;
   nameConfidence: string;
   source: string;
+  recordType: 'REAL' | 'TEST';
+  provenance: string;
   subject: string;
   body: string;
   status: string;
@@ -33,11 +35,47 @@ export class InteractiveReviewerService {
     this.db = customDb || getPrismaClient();
   }
 
-  public async getPendingItems(limit: number = 50): Promise<InteractiveReviewItem[]> {
+  public async getPendingItems(options?: { limit?: number; includeTest?: boolean } | number): Promise<InteractiveReviewItem[]> {
+    const limit = typeof options === 'number' ? options : (options?.limit ?? 50);
+    const includeTest = typeof options === 'object' ? (options.includeTest ?? false) : false;
+
+    const whereClause: any = {
+      status: { in: ['DRAFT', 'REVIEW_REQUIRED'] },
+    };
+
+    if (!includeTest) {
+      whereClause.lead = {
+        business: {
+          NOT: [
+            { source: { startsWith: 'test' } },
+            { source: 'TEST_SUITE' },
+            { name: { startsWith: 'Test' } },
+            { name: { startsWith: 'Execution Biz' } },
+            { name: { startsWith: 'Contact Test' } },
+            { name: { startsWith: 'BatchTest' } },
+            { name: { startsWith: 'Phase11' } },
+            { name: { startsWith: 'Approved Biz' } },
+            { name: { startsWith: 'Cooldown Biz' } },
+            { name: { startsWith: 'Suppressed' } },
+            { name: { contains: 'Test Biz' } },
+            { name: { contains: 'Personalize Test' } },
+            { name: { contains: 'Expired Biz' } },
+            { name: { contains: 'Suppressed Lead Biz' } },
+            { name: { contains: 'Gate Biz' } },
+            { name: { contains: 'Duplicate Biz' } },
+            { name: { contains: 'Pilot Test' } },
+            { name: { contains: 'Mock Biz' } },
+            { name: { contains: 'Fixture Biz' } },
+            { name: { contains: 'Test Clinic' } },
+            { name: { contains: 'Scoring Test' } },
+            { name: { contains: 'UnitTest' } },
+          ],
+        },
+      };
+    }
+
     const outreaches = await this.db.outreach.findMany({
-      where: {
-        status: { in: ['DRAFT', 'REVIEW_REQUIRED'] },
-      },
+      where: whereClause,
       include: {
         lead: {
           include: {
@@ -59,6 +97,17 @@ export class InteractiveReviewerService {
       const l = o.lead;
       const audit = b?.audits?.[0];
       const primaryContact = b?.contacts?.[0];
+
+      const source = b?.source || 'osm_overpass';
+      const isTest =
+        source.startsWith('test') ||
+        source === 'TEST_SUITE' ||
+        (b?.name && (b.name.startsWith('Test') || b.name.includes('Test Biz') || b.name.includes('Personalize Test')));
+
+      let provenanceLabel = 'OSM / DuckDuckGo / Official Website';
+      if (source.includes('osm')) provenanceLabel = 'OpenStreetMap (OSM)';
+      else if (source.includes('search') || source.includes('ddg')) provenanceLabel = 'DuckDuckGo Web Search';
+      else if (isTest) provenanceLabel = 'Automated Test Fixture';
 
       let salesAngleText = 'Website improvement opportunity';
       if (l?.salesAngle) {
@@ -87,7 +136,9 @@ export class InteractiveReviewerService {
         channel: o.channel || (b?.website ? 'EMAIL' : 'PHONE'),
         contactValue: o.primaryContactValue || primaryContact?.value || b?.phone || 'None',
         nameConfidence: 'HIGH',
-        source: b?.source || 'osm_overpass',
+        source,
+        recordType: isTest ? 'TEST' : 'REAL',
+        provenance: provenanceLabel,
         subject: o.finalSubject || o.subject || 'Website Consultation',
         body: o.finalBody || o.body,
         status: o.status,
@@ -155,8 +206,8 @@ export class InteractiveReviewerService {
     this.log.info(`Outreach [${outreachId}] EDITED AND APPROVED by ${operator}`);
   }
 
-  public async startInteractiveCli(): Promise<void> {
-    const items = await this.getPendingItems(100);
+  public async startInteractiveCli(options?: { limit?: number; includeTest?: boolean }): Promise<void> {
+    const items = await this.getPendingItems(options || 100);
 
     if (items.length === 0) {
       console.log('\n✅ No pending drafts in REVIEW_REQUIRED or DRAFT queue.\n');
@@ -181,6 +232,9 @@ export class InteractiveReviewerService {
         console.log(`----------------------------------------------------------------------`);
         console.log(`[Item ${i + 1} of ${items.length}] PROSPECT DETAILS:`);
         console.log(`----------------------------------------------------------------------`);
+        console.log(`• Environment          : Operational`);
+        console.log(`• Record Type          : ${item.recordType}`);
+        console.log(`• Provenance           : ${item.provenance}`);
         console.log(`• Business Name        : ${item.businessName}`);
         console.log(`• Location             : ${item.location}`);
         console.log(`• Website              : ${item.website}`);
@@ -191,7 +245,6 @@ export class InteractiveReviewerService {
         console.log(`• Contact Channel      : ${item.channel}`);
         console.log(`• Contact Value        : ${item.contactValue}`);
         console.log(`• Name Confidence      : ${item.nameConfidence}`);
-        console.log(`• Provenance Source    : ${item.source}`);
         console.log(`\n--- PERSONALIZED DRAFT ---`);
         console.log(`Subject: ${item.subject}`);
         console.log(`\n${item.body}\n`);

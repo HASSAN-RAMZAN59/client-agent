@@ -86,7 +86,7 @@ describe('Phase 10: Controlled Live Pilot & Commercial Execution Readiness', () 
 
   describe('A. Review Workflow & Approval / Rejection Lifecycle', () => {
     it('should retrieve pending drafts in review queue', async () => {
-      const items = await reviewer.getPendingItems(500);
+      const items = await reviewer.getPendingItems({ limit: 500, includeTest: true });
       const target = items.find((i) => i.id === testOutreachId);
       expect(target).toBeDefined();
       expect(target?.businessName).toContain('Phase10 Test Dental');

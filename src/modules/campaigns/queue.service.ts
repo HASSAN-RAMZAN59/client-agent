@@ -146,11 +146,49 @@ export class QueueService {
     return items.slice(0, limit);
   }
 
-  public async getReviewQueue(limit: number = 20): Promise<ReviewQueueItem[]> {
+  public async getReviewQueue(
+    limit: number = 20,
+    options?: { includeTest?: boolean }
+  ): Promise<ReviewQueueItem[]> {
+    const includeTest = options?.includeTest ?? false;
+
+    const where: any = {
+      status: { in: ['DRAFT', 'REVIEW_REQUIRED'] },
+    };
+
+    if (!includeTest) {
+      where.lead = {
+        business: {
+          NOT: [
+            { source: { startsWith: 'test' } },
+            { source: 'TEST_SUITE' },
+            { name: { startsWith: 'Test' } },
+            { name: { startsWith: 'Execution Biz' } },
+            { name: { startsWith: 'Contact Test' } },
+            { name: { startsWith: 'BatchTest' } },
+            { name: { startsWith: 'Phase11' } },
+            { name: { startsWith: 'Approved Biz' } },
+            { name: { startsWith: 'Cooldown Biz' } },
+            { name: { startsWith: 'Suppressed' } },
+            { name: { contains: 'Test Biz' } },
+            { name: { contains: 'Personalize Test' } },
+            { name: { contains: 'Expired Biz' } },
+            { name: { contains: 'Suppressed Lead Biz' } },
+            { name: { contains: 'Gate Biz' } },
+            { name: { contains: 'Duplicate Biz' } },
+            { name: { contains: 'Pilot Test' } },
+            { name: { contains: 'Mock Biz' } },
+            { name: { contains: 'Fixture Biz' } },
+            { name: { contains: 'Test Clinic' } },
+            { name: { contains: 'Scoring Test' } },
+            { name: { contains: 'UnitTest' } },
+          ],
+        },
+      };
+    }
+
     const outreaches = await this.db.outreach.findMany({
-      where: {
-        status: { in: ['DRAFT', 'REVIEW_REQUIRED'] },
-      },
+      where,
       include: {
         lead: {
           include: {

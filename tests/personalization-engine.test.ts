@@ -60,9 +60,9 @@ describe('Phase 6: AI Personalization & Outreach Content Engine', () => {
       sourceType: 'OFFICIAL_WEBSITE',
     },
     sender: {
-      name: 'Alex Morgan',
-      company: 'ModernWeb Studio',
-      email: 'alex@modernwebstudio.com',
+      name: 'HASSAN RAMZAN',
+      company: '',
+      email: 'hassanramzan59@gmail.com',
     },
   };
 

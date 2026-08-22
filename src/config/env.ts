@@ -311,11 +311,11 @@ const envSchema = z.object({
     .default(20),
 
   // Phase 7 SMTP Delivery Provider Configuration
-  SMTP_HOST: z.string().optional().default(''),
+  SMTP_HOST: z.string().default('smtp.gmail.com'),
   SMTP_PORT: z
     .string()
     .or(z.number())
-    .transform((val) => (typeof val === 'string' ? parseInt(val, 10) : val))
+    .transform((val) => Number(val))
     .default(587),
   SMTP_SECURE: z
     .string()
@@ -325,10 +325,11 @@ const envSchema = z.object({
       return val === 'true' || val === '1';
     })
     .default(false),
-  SMTP_USER: z.string().optional().default(''),
+  SMTP_USER: z.string().optional().default('hassanramzan59@gmail.com'),
   SMTP_PASSWORD: z.string().optional().default(''),
-  SMTP_FROM_NAME: z.string().default('Alex Morgan'),
-  SMTP_FROM_EMAIL: z.string().default('alex@modernwebstudio.com'),
+  SMTP_FROM_NAME: z.string().default('HASSAN RAMZAN'),
+  SMTP_FROM_EMAIL: z.string().default('hassanramzan59@gmail.com'),
+  SENDER_POSTAL_ADDRESS: z.string().optional().default(''),
 
   // Future Module Placeholders
   GMAIL_CLIENT_ID: z.string().optional().default(''),
