@@ -2036,6 +2036,45 @@ program
   });
 
 program
+  .command('smtp-status')
+  .description('Inspect and validate local SMTP configuration without sending network traffic')
+  .action(async () => {
+    try {
+      const { config } = await import('../config/env.js');
+
+      const hostConfigured = Boolean(config.SMTP_HOST && config.SMTP_HOST.trim().length > 0);
+      const userConfigured = Boolean(config.SMTP_USER && config.SMTP_USER.trim().length > 0);
+      const passConfigured = Boolean(config.SMTP_PASSWORD && config.SMTP_PASSWORD.trim().length > 0);
+      const fromNameConfigured = Boolean(config.SMTP_FROM_NAME && config.SMTP_FROM_NAME.trim().length > 0);
+      const fromEmailConfigured = Boolean(
+        config.SMTP_FROM_EMAIL &&
+          config.SMTP_FROM_EMAIL.trim().length > 0 &&
+          config.SMTP_FROM_EMAIL.includes('@')
+      );
+
+      const isValid =
+        hostConfigured && userConfigured && passConfigured && fromEmailConfigured;
+
+      console.log('\n======================================================================');
+      console.log('                   SMTP CONFIGURATION STATUS AUDIT');
+      console.log('======================================================================\n');
+      console.log(`SMTP Provider          : SmtpDeliveryProvider`);
+      console.log(`Host Configured        : ${hostConfigured ? config.SMTP_HOST : 'NO (NOT CONFIGURED)'}`);
+      console.log(`Port                   : ${config.SMTP_PORT}`);
+      console.log(`Secure (SSL/TLS)       : ${config.SMTP_SECURE ? 'YES' : 'NO'}`);
+      console.log(`Username Configured    : ${userConfigured ? config.SMTP_USER : 'NO (NOT CONFIGURED)'}`);
+      console.log(`Password Configured    : ${passConfigured ? 'YES' : 'NO'}`);
+      console.log(`From Name              : ${fromNameConfigured ? config.SMTP_FROM_NAME : 'NO (NOT CONFIGURED)'}`);
+      console.log(`From Email             : ${fromEmailConfigured ? config.SMTP_FROM_EMAIL : 'NO (NOT CONFIGURED)'}`);
+      console.log(`Configuration Valid    : ${isValid ? 'YES (READY)' : 'NO (MISSING CREDENTIALS)'}`);
+      console.log(`Network Send Performed : NO\n`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed in smtp-status check', msg);
+    }
+  });
+
+program
   .command('review-queue')
   .description('Display pending human review queue with draft previews and quality gates')
   .option('-l, --limit <number>', 'Number of items to inspect', '10')
