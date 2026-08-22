@@ -9,10 +9,11 @@ export function normalizePhoneNumber(raw: string): { normalized: string; country
   if (!raw) return null;
 
   // Remove non-digit characters except leading +
+  const hasPlus = raw.trim().startsWith('+');
   const digits = raw.replace(/\D/g, '');
 
   // Standard US / North American Numbering Plan (10 digits, or 11 with leading 1)
-  if (digits.length === 10) {
+  if (!hasPlus && digits.length === 10) {
     const area = digits.slice(0, 3);
     const prefix = digits.slice(3, 6);
     const line = digits.slice(6, 10);
@@ -32,11 +33,35 @@ export function normalizePhoneNumber(raw: string): { normalized: string; country
     };
   }
 
+  // Pakistan (+92)
+  if (digits.startsWith('92') && (digits.length === 12 || digits.length === 11)) {
+    return {
+      normalized: `+${digits}`,
+      country: 'PK',
+    };
+  }
+
+  // UK (+44)
+  if (digits.startsWith('44') && digits.length >= 10 && digits.length <= 13) {
+    return {
+      normalized: `+${digits}`,
+      country: 'GB',
+    };
+  }
+
+  // Australia (+61)
+  if (digits.startsWith('61') && digits.length >= 9 && digits.length <= 12) {
+    return {
+      normalized: `+${digits}`,
+      country: 'AU',
+    };
+  }
+
   // International format fallback (minimum 7 digits, max 15)
   if (digits.length >= 7 && digits.length <= 15) {
     return {
       normalized: `+${digits}`,
-      country: 'UNKNOWN',
+      country: 'INTERNATIONAL',
     };
   }
 
@@ -65,12 +90,12 @@ export function extractPhonesFromHtml(html: string): ExtractedPhone[] {
     }
   }
 
-  // 2. Extract standard US phone numbers from text
-  // Pattern matches (123) 456-7890, 123-456-7890, 123.456.7890, +1 123 456 7890
-  const phoneTextRegex = /(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]\d{4}\b/g;
+  // 2. Extract standard US & International phone numbers from text
+  // Pattern matches (123) 456-7890, +44 20 7946 0958, +92 42 35789000, +61 2 9374 4000
+  const phoneTextRegex = /(?:\+(?:[1-9]\d{0,2})[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}\b/g;
   while ((match = phoneTextRegex.exec(html)) !== null) {
     const raw = match[0]?.trim();
-    if (raw) {
+    if (raw && raw.length >= 7) {
       const normalizedRes = normalizePhoneNumber(raw);
       if (normalizedRes && !results.has(normalizedRes.normalized)) {
         results.set(normalizedRes.normalized, {

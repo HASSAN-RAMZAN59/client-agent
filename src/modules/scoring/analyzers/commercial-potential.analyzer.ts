@@ -18,8 +18,18 @@ export function analyzeCommercialPotential(input: CommercialPotentialInput): Com
   const catLower = input.category.toLowerCase();
 
   // 1. High-Ticket Client Verticals
-  const tier1HighTicket = ['dentist', 'dental', 'orthodont', 'lawyer', 'attorney', 'legal', 'plastic surgery', 'cosmetic', 'roofing', 'hvac', 'plumbing', 'general contractor', 'solar', 'medical', 'clinic'];
-  const tier2MidTicket = ['auto repair', 'mechanic', 'accounting', 'cpa', 'real estate', 'realtor', 'fitness', 'gym', 'veterinarian', 'pet clinic', 'salon', 'spa', 'restaurant'];
+  const tier1HighTicket = [
+    'dentist', 'dental', 'orthodont', 'lawyer', 'attorney', 'legal', 'law firm',
+    'plastic surgery', 'cosmetic', 'roofing', 'hvac', 'plumbing', 'plumber',
+    'general contractor', 'solar', 'medical', 'clinic', 'auto dealership',
+    'car dealership', 'dealership', 'software', 'it agency', 'agency',
+    'real estate', 'realtor'
+  ];
+  const tier2MidTicket = [
+    'auto repair', 'mechanic', 'accounting', 'cpa', 'fitness', 'gym',
+    'veterinarian', 'pet clinic', 'salon', 'barbershop', 'barber', 'spa',
+    'restaurant', 'cafe', 'cleaning', 'cleaner', 'cleaning company'
+  ];
 
   if (tier1HighTicket.some((t) => catLower.includes(t))) {
     score += 35;
