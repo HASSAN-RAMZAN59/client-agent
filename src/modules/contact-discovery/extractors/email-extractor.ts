@@ -2,6 +2,8 @@ import { ContactClassification } from '../../../types/index.js';
 
 export interface ExtractedEmail {
   email: string;
+  emailAsFound: string;
+  sourceContext: string;
   classification: ContactClassification;
   rawSource: string; // 'mailto' | 'text'
 }
@@ -45,9 +47,15 @@ const DEPARTMENT_PREFIXES = new Set([
 
 const BLACKLIST_DOMAINS = new Set([
   'example.com',
+  'example.org',
+  'example.net',
   'domain.com',
   'yourdomain.com',
   'yoursite.com',
+  'mywebsite.com',
+  'email.com',
+  'sample.com',
+  'test.com',
   'sentry.io',
   'wixpress.com',
   'wordpress.org',
@@ -59,6 +67,19 @@ const BLACKLIST_DOMAINS = new Set([
   'bootstrap.com',
   'fontawesome.com',
   'gravatar.com',
+]);
+
+const BLACKLIST_PLACEHOLDERS = new Set([
+  'your@email.com',
+  'youremail@email.com',
+  'email@domain.com',
+  'name@domain.com',
+  'username@domain.com',
+  'user@domain.com',
+  'test@test.com',
+  'info@domain.com',
+  'admin@domain.com',
+  'contact@domain.com',
 ]);
 
 const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|css|js|woff2?|ttf|eot|ico)$/i;
@@ -104,8 +125,11 @@ export function extractEmailsFromHtml(html: string): ExtractedEmail[] {
   while ((match = mailtoRegex.exec(html)) !== null) {
     const rawEmail = match[1]?.toLowerCase().trim();
     if (rawEmail && isValidEmailCandidate(rawEmail)) {
+      const fullHref = match[0] || `mailto:${rawEmail}`;
       results.set(rawEmail, {
         email: rawEmail,
+        emailAsFound: rawEmail,
+        sourceContext: `mailto link: ${fullHref.slice(0, 100)}`,
         classification: classifyEmail(rawEmail),
         rawSource: 'mailto',
       });
@@ -117,8 +141,14 @@ export function extractEmailsFromHtml(html: string): ExtractedEmail[] {
   while ((match = emailRegex.exec(html)) !== null) {
     const rawEmail = match[0]?.toLowerCase().trim();
     if (rawEmail && isValidEmailCandidate(rawEmail) && !results.has(rawEmail)) {
+      const idx = match.index;
+      const start = Math.max(0, idx - 40);
+      const end = Math.min(html.length, idx + rawEmail.length + 40);
+      const snippet = html.slice(start, end).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       results.set(rawEmail, {
         email: rawEmail,
+        emailAsFound: rawEmail,
+        sourceContext: snippet ? `text: ${snippet.slice(0, 120)}` : `text: ${rawEmail}`,
         classification: classifyEmail(rawEmail),
         rawSource: 'text',
       });
@@ -132,7 +162,10 @@ export function isValidEmailCandidate(email: string): boolean {
   if (!email || email.length < 5 || email.length > 254) return false;
   if (ASSET_EXTENSIONS.test(email)) return false;
 
-  const parts = email.split('@');
+  const emailLower = email.toLowerCase().trim();
+  if (BLACKLIST_PLACEHOLDERS.has(emailLower)) return false;
+
+  const parts = emailLower.split('@');
   if (parts.length !== 2) return false;
 
   const [local, domain] = parts;

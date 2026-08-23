@@ -72,6 +72,7 @@ export class CampaignRepository {
   public async assignBusinessesToCampaign(campaignId: string, businessIds: string[]): Promise<number> {
     if (businessIds.length === 0) return 0;
 
+    // 1. Update legacy single relation
     const result = await this.db.business.updateMany({
       where: {
         id: { in: businessIds },
@@ -81,12 +82,70 @@ export class CampaignRepository {
       },
     });
 
+    // 2. Insert into isolated CampaignBusiness join table
+    for (const bId of businessIds) {
+      await this.db.campaignBusiness.upsert({
+        where: {
+          unique_campaign_business: {
+            campaignId,
+            businessId: bId,
+          },
+        },
+        create: {
+          campaignId,
+          businessId: bId,
+        },
+        update: {},
+      });
+    }
+
     return result.count;
+  }
+
+  public async removeBusinessesFromCampaign(campaignId: string, businessIds: string[]): Promise<number> {
+    if (businessIds.length === 0) return 0;
+
+    await this.db.business.updateMany({
+      where: {
+        id: { in: businessIds },
+        campaignId,
+      },
+      data: {
+        campaignId: null,
+      },
+    });
+
+    const deleted = await this.db.campaignBusiness.deleteMany({
+      where: {
+        campaignId,
+        businessId: { in: businessIds },
+      },
+    });
+
+    return deleted.count;
+  }
+
+  public async clearCampaignAssociations(campaignId: string): Promise<number> {
+    await this.db.business.updateMany({
+      where: { campaignId },
+      data: { campaignId: null },
+    });
+
+    const deleted = await this.db.campaignBusiness.deleteMany({
+      where: { campaignId },
+    });
+
+    return deleted.count;
   }
 
   public async getCampaignBusinesses(campaignId: string): Promise<any[]> {
     return this.db.business.findMany({
-      where: { campaignId },
+      where: {
+        OR: [
+          { campaignId },
+          { campaignBusinesses: { some: { campaignId } } },
+        ],
+      },
       include: {
         audits: {
           orderBy: { createdAt: 'desc' },
@@ -98,6 +157,7 @@ export class CampaignRepository {
           },
         },
         contacts: true,
+        campaignBusinesses: true,
       },
       orderBy: { createdAt: 'desc' },
     });

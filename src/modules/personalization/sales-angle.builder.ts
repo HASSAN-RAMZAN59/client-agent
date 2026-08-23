@@ -7,6 +7,15 @@ import { translateOpportunityFlagToBusinessLanguage } from './personalization-co
 
 export function buildDetailedSalesAngle(context: PersonalizationContext): DetailedSalesAngle {
   const { business, audit, lead } = context;
+  const isDental = Boolean(
+    business.category &&
+    (business.category.toLowerCase().includes('dent') ||
+      business.category.toLowerCase().includes('orthodont') ||
+      business.category.toLowerCase().includes('oral'))
+  );
+
+  const clientTerm = isDental ? 'prospective patients' : 'local homeowners and prospective customers';
+  const inquiryTerm = isDental ? 'patient inquiries' : 'service inquiries and calls';
 
   // Case 1: No Website
   if (!business.website || audit?.websiteStatus === 'NO_WEBSITE' || lead.topOpportunitySignals.includes('NO_WEBSITE')) {
@@ -15,7 +24,7 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
       evidence: ["I couldn't identify an official website for this business in public registries or local web search."],
       opportunity: `Build a modern, mobile-first website showcasing services in ${business.city}.`,
       recommendedService: 'WEBSITE_REBUILD',
-      businessImpact: 'A dedicated web presence makes it easier for potential customers searching online to find business hours, location, and contact options.',
+      businessImpact: `A dedicated web presence makes it easier for ${clientTerm} searching online to find services, business hours, and contact options.`,
       confidence: 'HIGH',
     };
   }
@@ -27,7 +36,7 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
       evidence: ['Official website returned automated challenge/bot protection screen during audit.'],
       opportunity: 'Conduct a collaborative review of mobile usability and page loading speed.',
       recommendedService: 'WEBSITE_IMPROVEMENT',
-      businessImpact: 'Ensuring seamless visitor accessibility on all devices helps support reliable customer engagement.',
+      businessImpact: `Ensuring smooth mobile visitor accessibility helps support reliable ${inquiryTerm}.`,
       confidence: 'MEDIUM',
     };
   }
@@ -46,7 +55,7 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
       evidence: evidenceList,
       opportunity: 'Deploy a branded mobile app with 1-tap booking, push appointment reminders, and customer loyalty.',
       recommendedService: 'MOBILE_APP',
-      businessImpact: 'Direct mobile presence can help reduce appointment no-shows and increase repeat customer retention.',
+      businessImpact: `A direct mobile presence can help streamline scheduling and communication for ${clientTerm}.`,
       confidence: 'HIGH',
     };
   }
@@ -59,7 +68,7 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
         'Mobile browser audit detected horizontal layout overflow or non-responsive elements.',
         ...(audit?.topProblems?.filter((p) => p.toLowerCase().includes('mobile') || p.toLowerCase().includes('overflow')) || []),
       ],
-      opportunity: 'Refine CSS layout and responsive viewport rendering for seamless smartphone browsing.',
+      opportunity: 'Refine layout and responsive viewport rendering for seamless smartphone browsing.',
       recommendedService: 'MOBILE_OPTIMIZATION',
       businessImpact: 'A clean mobile layout makes it easier for visitors to read service details and tap to call.',
       confidence: 'HIGH',
@@ -73,11 +82,11 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
       problem: `Slow page loading speed (${loadTimeSec}s on mobile)`,
       evidence: [
         `Mobile audit recorded approximately ${loadTimeSec}s initial load time.`,
-        'Performance score below recommended Core Web Vitals thresholds.',
+        'Performance metrics show opportunity to improve initial loading speed.',
       ],
-      opportunity: 'Optimize asset delivery, compression, and script execution for faster page speed.',
+      opportunity: 'Streamline mobile asset delivery and script loading for faster page speed.',
       recommendedService: 'WEBSITE_IMPROVEMENT',
-      businessImpact: 'Faster load times reduce visitor bounce rates and create a smoother experience for prospective clients.',
+      businessImpact: 'Improving load time could make the mobile experience smoother for visitors.',
       confidence: 'HIGH',
     };
   }
@@ -92,7 +101,7 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
       ],
       opportunity: 'Introduce clear contact buttons, phone links, and streamlined consultation request options.',
       recommendedService: 'WEBSITE_IMPROVEMENT',
-      businessImpact: 'Prominent next steps reduce friction for visitors ready to get in touch or book an appointment.',
+      businessImpact: `Prominent next steps reduce friction for ${clientTerm} ready to get in touch.`,
       confidence: 'HIGH',
     };
   }
@@ -110,9 +119,9 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
   return {
     problem: audit?.topProblems?.[0] || 'Identifiable website modernization opportunities',
     evidence,
-    opportunity: 'Implement targeted technical and UX enhancements on key pages.',
+    opportunity: 'Implement targeted technical and layout enhancements on key pages.',
     recommendedService: lead.recommendedService || 'WEBSITE_IMPROVEMENT',
-    businessImpact: 'Modernized technical and visual presentation can help support stronger visitor engagement.',
+    businessImpact: 'Modernized technical and visual presentation helps support stronger visitor engagement.',
     confidence,
   };
 }

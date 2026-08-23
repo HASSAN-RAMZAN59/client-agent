@@ -21,6 +21,9 @@ export interface LivePilotEligibilityOptions {
   checkDailyLimit?: boolean;
   strictLiveMode?: boolean;
   campaignId?: string;
+  campaignCity?: string;
+  campaignCountry?: string;
+  campaignNiche?: string;
   allowTestRecord?: boolean;
   enforceTestCheck?: boolean;
   pilotCountry?: string;
@@ -127,6 +130,7 @@ export class PreSendValidator {
                 audits: { orderBy: { createdAt: 'desc' }, take: 1 },
                 contacts: true,
                 campaign: true,
+                campaignBusinesses: true,
               },
             },
           },
@@ -162,6 +166,56 @@ export class PreSendValidator {
       }
     }
 
+    // 0b. Strict Campaign Membership & Configuration Gate
+    const targetCampaignId = options.campaignId || business?.campaignId;
+    let targetCampaign = business?.campaign;
+    if (options.campaignId && (!targetCampaign || targetCampaign.id !== options.campaignId)) {
+      targetCampaign = await this.db.campaign.findUnique({ where: { id: options.campaignId } });
+    }
+
+    if (options.campaignId) {
+      const isLinkedToCampaign =
+        business?.campaignId === options.campaignId ||
+        business?.campaignBusinesses?.some((cb) => cb.campaignId === options.campaignId);
+
+      if (!isLinkedToCampaign) {
+        reasons.push('CAMPAIGN_MARKET_MISMATCH');
+      }
+    }
+
+    if (targetCampaign) {
+      const targetCountry = normalizeCountryCode(options.campaignCountry || targetCampaign.country);
+      const bizCountry = normalizeCountryCode(business?.country);
+      const targetCity = (options.campaignCity || targetCampaign.city || '').trim().toLowerCase();
+      const bizCity = (business?.city || '').trim().toLowerCase();
+
+      if (bizCountry !== targetCountry || (targetCity && bizCity !== targetCity)) {
+        if (!reasons.includes('CAMPAIGN_MARKET_MISMATCH')) {
+          reasons.push('CAMPAIGN_MARKET_MISMATCH');
+        }
+      }
+
+      const targetNiche = options.campaignNiche || targetCampaign.niche;
+      if (targetNiche && business?.category) {
+        if (!this.isNicheMatch(business.category, targetNiche)) {
+          if (!reasons.includes('CAMPAIGN_NICHE_MISMATCH')) {
+            reasons.push('CAMPAIGN_NICHE_MISMATCH');
+          }
+        }
+      }
+    } else {
+      if (options.campaignCity && business?.city) {
+        if (business.city.trim().toLowerCase() !== options.campaignCity.trim().toLowerCase()) {
+          reasons.push('CAMPAIGN_MARKET_MISMATCH');
+        }
+      }
+      if (options.campaignNiche && business?.category) {
+        if (!this.isNicheMatch(business.category, options.campaignNiche)) {
+          reasons.push('CAMPAIGN_NICHE_MISMATCH');
+        }
+      }
+    }
+
     // 1. Channel Exclusivity Check (Strictly EMAIL)
     if (outreach.channel === 'PHONE') {
       reasons.push('PHONE_CHANNEL');
@@ -186,13 +240,27 @@ export class PreSendValidator {
     }
 
     // 4. Business Identity Check
+    const name = business?.name ? business.name.trim() : '';
+    const unsafeIdentityRegexes = [
+      /^(?:dentist|dentists|dentistry|dental|hvac|plumber|plumbing|doctor|lawyer|attorney|roofing|electrician|cleaning)\s+in\s+[a-zA-Z\s,.-]+$/i,
+      /^[a-zA-Z\s,.-]+,\s*(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA)\s+(?:dentists?|dentistry|hvac|plumbers?|doctors?|lawyers?|attorneys?|services)$/i,
+      /^(?:dentist|dentistry|dental|hvac|plumber|doctor|lawyer)\s+near\s+me$/i,
+      /^(?:best|top|affordable|emergency|cheap)\s+(?:dentists?|hvac|plumbers?|doctors?)\s+in\s+[a-zA-Z\s,.-]+$/i,
+    ];
+    const isUnsafeName = unsafeIdentityRegexes.some((rx) => rx.test(name));
+
     const validBusinessIdentity = Boolean(
-      business?.name &&
-        business.name.trim().length >= 2 &&
-        !business.name.toLowerCase().includes('unknown business')
+      name &&
+        name.length >= 2 &&
+        !name.toLowerCase().includes('unknown business') &&
+        !isUnsafeName
     );
     if (!validBusinessIdentity) {
-      reasons.push('INVALID_BUSINESS_IDENTITY');
+      if (isUnsafeName) {
+        reasons.push('BUSINESS_IDENTITY_UNSAFE');
+      } else {
+        reasons.push('INVALID_BUSINESS_IDENTITY');
+      }
     }
 
     // 5. Contact & Verified Public Email Check
@@ -235,7 +303,28 @@ export class PreSendValidator {
       );
       const hasVerificationTimestamp = Boolean(matchingContact?.discoveredAt || matchingContact?.createdAt);
 
-      if (!hasMatchingContact || !isStatusVerifiedPublic || !hasValidSourceUrl || !hasVerificationTimestamp) {
+      // Check directory/search snippet exclusion: sourceUrl must not be directory/search engine snippet
+      const isDirectorySource = Boolean(
+        matchingContact?.sourceUrl &&
+        /google\.|yelp\.|yellowpages\.|bing\.|bbb\.org|facebook\.|tripadvisor\.|mapquest\./i.test(
+          matchingContact.sourceUrl
+        )
+      );
+
+      // Check emailAsFound match if present
+      const emailAsFound = (matchingContact as any)?.emailAsFound;
+      const emailAsFoundMatches = emailAsFound
+        ? contactValue?.toLowerCase().trim() === emailAsFound.toLowerCase().trim()
+        : true;
+
+      if (
+        !hasMatchingContact ||
+        !isStatusVerifiedPublic ||
+        !hasValidSourceUrl ||
+        !hasVerificationTimestamp ||
+        isDirectorySource ||
+        !emailAsFoundMatches
+      ) {
         reasons.push('EMAIL_SOURCE_NOT_VERIFIABLE');
       }
     }
@@ -452,6 +541,42 @@ export class PreSendValidator {
       }
     }
 
+    return false;
+  }
+
+  public isNicheMatch(businessCategory: string, campaignNiche: string): boolean {
+    if (!businessCategory || !campaignNiche) return false;
+    const targetNiches = campaignNiche.split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
+    const cat = businessCategory.toLowerCase().trim();
+
+    for (const target of targetNiches) {
+      if (target === 'dentist' || target === 'dental') {
+        if (
+          cat.includes('dent') ||
+          cat.includes('orthodont') ||
+          cat.includes('endodont') ||
+          cat.includes('periodont') ||
+          cat.includes('oral')
+        ) {
+          return true;
+        }
+      } else if (target === 'hvac' || target === 'heating' || target === 'air conditioning') {
+        if (
+          cat.includes('hvac') ||
+          cat.includes('air condition') ||
+          cat.includes('heating') ||
+          cat.includes('cooling') ||
+          cat.includes('furnace') ||
+          cat.includes('heat')
+        ) {
+          return true;
+        }
+      } else {
+        if (cat.includes(target) || target.includes(cat)) {
+          return true;
+        }
+      }
+    }
     return false;
   }
 

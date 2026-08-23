@@ -174,6 +174,20 @@ export function cleanSearchTitleToBusinessName(
   // 2. Remove parentheticals at the end e.g. (Formerly XYZ)
   text = text.replace(/\s*\([^)]*\)$/, '').trim();
 
+  // 2b. Strip common search-intent prefixes
+  // e.g. "Dentist in Dallas, TX AmeriSmiles Dental", "Dentist near me Dental House", "HVAC in Dallas Air Pro"
+  const searchIntentPrefixRegex = /^(?:dentist|dentistry|dental|hvac|doctor|plumber|lawyer|attorney|roofing|electrician|cleaning|chiropractor|orthodontist|pediatric\s+dentist)\s+(?:(?:in\s+[a-zA-Z\s]+(?:,\s*(?:[A-Z]{2}|Texas|USA|US))?)|near\s+me|services\s+in\s+[a-zA-Z\s,.-]+?)\s*[-–—|:•/,\s]+\s*/i;
+  while (searchIntentPrefixRegex.test(text)) {
+    text = text.replace(searchIntentPrefixRegex, '').trim();
+  }
+  const searchIntentStandaloneRegex = /^(?:dentist|dentistry|dental|hvac|doctor|plumber|lawyer|attorney|roofing|electrician|cleaning|chiropractor|orthodontist|pediatric\s+dentist)\s+(?:(?:in\s+[a-zA-Z\s]+(?:,\s*(?:[A-Z]{2}|Texas|USA|US))?)|near\s+me)\s+/i;
+  if (searchIntentStandaloneRegex.test(text)) {
+    const after = text.replace(searchIntentStandaloneRegex, '').trim();
+    if (after.length >= 3) {
+      text = after;
+    }
+  }
+
   // 3. Handle Pipe, Dash, and Bullet delimited segments e.g. "Atlantis Dental Care | Dallas Dentist | Official Website"
   const segments = text.split(/\s*[-–—|•:]\s*/).map((s) => s.trim()).filter(Boolean);
   if (segments.length > 1) {
@@ -194,15 +208,6 @@ export function cleanSearchTitleToBusinessName(
     text = text.replace(prefixRegex, '').trim();
   }
 
-  // Handle prefix without separator if followed by brand name (e.g. "CONTACT US Family Dentistry & Implant Center")
-  const standalonePrefixRegex = /^(?:contact\s+us|about\s+us|home|welcome(?:\s+to)?)\s+/i;
-  if (standalonePrefixRegex.test(text)) {
-    const after = text.replace(standalonePrefixRegex, '').trim();
-    if (after.length >= 3) {
-      text = after;
-    }
-  }
-
   // 5. Strip common page-title suffixes
   // e.g. "... | Official Website", "... - Home", "... - Yelp", "... : Reviews"
   const suffixRegex = /\s*[-–—|:•/]\s*(?:official\s+(?:web)?site|official\s+page|home(?:page)?|contact\s+us|about\s+us|services|reviews|yelp|facebook|instagram|linkedin|mapquest|yellowpages|bbb|online\s+booking|get\s+quote).*$/i;
@@ -211,11 +216,11 @@ export function cleanSearchTitleToBusinessName(
   // 6. Strip trailing location qualifiers
   // e.g. "Example Dental Clinic - Dallas TX", "Example Dental Clinic Dallas, TX"
   if (options?.city) {
-    const cityRegex = new RegExp(`\\s*[-–—|:•/]?\\s*(?:in\\s+)?${options.city}(?:,?\\s*(?:${options.state || '[A-Z]{2}'}|Texas|USA|US))?\\s*$`, 'i');
+    const cityRegex = new RegExp(`(?:\\s*[-–—|:•/]+\\s*|\\s+)(?:in\\s+)?${options.city}(?:,?\\s*(?:${options.state || '[A-Z]{2}'}|Texas|USA|US))?\\s*$`, 'i');
     text = text.replace(cityRegex, '').trim();
   }
   // Generic city/state suffix e.g. "Dallas TX", "Dallas, TX", "Austin TX"
-  text = text.replace(/\s*[-–—|:•/]?\s*(?:[A-Z][a-zA-Z\s]+,?\s*(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA))\s*$/i, '').trim();
+  text = text.replace(/(?:\s*[-–—|:•/]+\s*|\s+(?:in\s+)?)(?:[A-Z][a-zA-Z\s]+,?\s+(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA))\s*$/i, '').trim();
 
   // 7. Detect and collapse repeated business-name fragments
   // e.g. "Atlantis Dental Care Dallas TX Atlantis Dental Care" -> after location removal: "Atlantis Dental Care Atlantis Dental Care"

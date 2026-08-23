@@ -25,7 +25,23 @@ export interface PilotExecutionParams {
 export interface PilotCandidateSummary {
   outreachId: string;
   businessName: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  niche?: string;
+  campaignMatch: string;
   recipientEmail: string;
+  emailSyntax: string;
+  isVerifiedPublic: boolean;
+  exactSourceUrl: string;
+  emailAsFound: string;
+  sourceContext: string;
+  verificationTimestamp?: string;
+  businessMatch: string;
+  locationMatch: string;
+  candidateQuality: string;
+  liveSendState: string;
+  blockingReason?: string;
   emailClassification: string;
   subject: string;
   leadScore: number;
@@ -33,14 +49,9 @@ export interface PilotCandidateSummary {
   salesAngle: string;
   approvalStatus: string;
   eligible: boolean;
-  blockingReason?: string;
   isSuppressed: boolean;
   isCooldownActive: boolean;
   hasHumanApproval: boolean;
-  candidateQuality: string;
-  liveSendState: string;
-  country?: string;
-  city?: string;
   provenanceWarning?: string;
 }
 
@@ -156,24 +167,38 @@ export class PilotExecutionService {
       };
     }
 
+    let targetCampaign: any = null;
     if (campaignId) {
+      targetCampaign = await this.db.campaign.findUnique({ where: { id: campaignId } });
       where.lead = {
         ...(where.lead || {}),
         business: {
           ...(where.lead?.business || {}),
-          campaignId,
+          OR: [
+            { campaignId },
+            { campaignBusinesses: { some: { campaignId } } },
+          ],
         },
       };
     }
 
-    // US-only filter at the Prisma query level
+    // Pilot country filter at the Prisma query level supporting common name variants
     if (pilotCountry) {
-      const normalizedCountry = normalizeCountryCode(pilotCountry);
+      const norm = normalizeCountryCode(pilotCountry);
+      const variants =
+        norm === 'US'
+          ? ['US', 'USA', 'United States', 'United States of America', 'U.S.', 'U.S.A.', 'us', 'usa']
+          : norm === 'CA'
+          ? ['CA', 'CAN', 'Canada', 'ca', 'can']
+          : norm === 'GB'
+          ? ['GB', 'GBR', 'UK', 'United Kingdom', 'Great Britain', 'gb', 'uk']
+          : [pilotCountry, norm];
+
       where.lead = {
         ...(where.lead || {}),
         business: {
           ...(where.lead?.business || {}),
-          country: normalizedCountry,
+          country: { in: variants },
         },
       };
     }
@@ -187,12 +212,14 @@ export class PilotExecutionService {
               include: {
                 contacts: true,
                 audits: { orderBy: { createdAt: 'desc' }, take: 1 },
+                campaign: true,
+                campaignBusinesses: true,
               },
             },
           },
         },
       },
-      take: hardLimit * 5,
+      take: 200,
       orderBy: { lead: { leadOpportunityScore: 'desc' } },
     });
 
@@ -234,7 +261,7 @@ export class PilotExecutionService {
       // Provenance warning check
       let provenanceWarning: string | undefined;
       if (matchingContact) {
-        if (!matchingContact.sourceUrl) {
+        if (!matchingContact.sourceUrl || matchingContact.status !== 'VERIFIED_PUBLIC') {
           provenanceWarning = 'EMAIL_SOURCE_NOT_VERIFIABLE';
           provenanceWarnings++;
         }
@@ -255,12 +282,25 @@ export class PilotExecutionService {
 
       const eligibility = await this.validator.isLivePilotEligible(o.id, {
         checkEnvFlags: false,
+        campaignId,
         pilotCountry,
+        campaignCity: targetCampaign?.city,
+        campaignCountry: targetCampaign?.country,
+        campaignNiche: targetCampaign?.niche,
       });
 
       // Determine separate quality vs send state
       const qualityReasons = eligibility.reasons.filter(
-        (r) => !['KILL_SWITCH_ACTIVE', 'PILOT_DISABLED', 'OUTREACH_DISABLED', 'DRY_RUN_ACTIVE', 'DAILY_LIMIT_REACHED'].includes(r)
+        (r) =>
+          ![
+            'KILL_SWITCH_ACTIVE',
+            'PILOT_DISABLED',
+            'OUTREACH_DISABLED',
+            'DRY_RUN_ACTIVE',
+            'DAILY_LIMIT_REACHED',
+            'NOT_HUMAN_APPROVED',
+            'HUMAN_APPROVAL_REQUIRED',
+          ].includes(r)
       );
       const candidateQuality = qualityReasons.length === 0 ? 'VALID' : 'INVALID';
 
@@ -278,10 +318,32 @@ export class PilotExecutionService {
         blockedCount++;
       }
 
+      const targetCountryNorm = normalizeCountryCode(pilotCountry || targetCampaign?.country || 'US');
+      const bizCountryNorm = normalizeCountryCode(b?.country);
+      const targetCityNorm = (targetCampaign?.city || 'Dallas').toLowerCase().trim();
+      const bizCityNorm = (b?.city || '').toLowerCase().trim();
+      const locMatch = bizCountryNorm === targetCountryNorm && (!targetCampaign?.city || bizCityNorm === targetCityNorm);
+      const nicheMatch = !targetCampaign?.niche || this.validator.isNicheMatch(b?.category || '', targetCampaign.niche);
+      const campMatch = locMatch && nicheMatch;
+      const bizMatch = Boolean(b?.name && b.name.trim().length >= 2 && !b.name.toLowerCase().includes('unknown'));
+
       candidates.push({
         outreachId: o.id,
         businessName: b?.name || 'Unknown Business',
+        city: b?.city || undefined,
+        state: (b as any)?.state || 'TX',
+        country: b?.country || undefined,
+        niche: b?.category || undefined,
+        campaignMatch: campMatch ? 'MATCH' : 'MISMATCH',
         recipientEmail: recipient,
+        emailSyntax: emailCheck.valid ? 'VALID' : 'INVALID',
+        isVerifiedPublic: matchingContact?.status === 'VERIFIED_PUBLIC',
+        exactSourceUrl: matchingContact?.sourceUrl || 'NONE',
+        emailAsFound: (matchingContact as any)?.emailAsFound || matchingContact?.value || 'NONE',
+        sourceContext: (matchingContact as any)?.sourceContext || 'NONE',
+        verificationTimestamp: matchingContact?.discoveredAt?.toISOString() || matchingContact?.createdAt?.toISOString() || 'NONE',
+        businessMatch: bizMatch ? 'MATCH' : 'MISMATCH',
+        locationMatch: locMatch ? 'MATCH' : 'MISMATCH',
         emailClassification: matchingContact?.classification || 'BUSINESS_GENERIC',
         subject: o.finalSubject || o.subject || 'Website Consultation',
         leadScore: l?.leadOpportunityScore || 0,
@@ -295,8 +357,6 @@ export class PilotExecutionService {
         hasHumanApproval: eligibility.details.hasHumanApproval,
         candidateQuality,
         liveSendState,
-        country: b?.country || undefined,
-        city: b?.city || undefined,
         provenanceWarning,
       });
     }

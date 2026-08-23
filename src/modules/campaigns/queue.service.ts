@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../database/client.js';
-import { LeadQueueItem, ReviewQueueItem, LeadClassification, AuditConfidence, RecommendedService, QualityBand, OutreachLifecycleStatus } from '../../types/index.js';
+import { LeadQueueItem, ReviewQueueItem, ReviewQueueFilters, LeadClassification, AuditConfidence, RecommendedService, QualityBand, OutreachLifecycleStatus } from '../../types/index.js';
 
 export interface LeadQueueFilters {
   country?: string;
@@ -148,9 +148,20 @@ export class QueueService {
 
   public async getReviewQueue(
     limit: number = 20,
-    options?: { includeTest?: boolean }
+    options?: ReviewQueueFilters | { includeTest?: boolean }
   ): Promise<ReviewQueueItem[]> {
-    const includeTest = options?.includeTest ?? false;
+    const filters: ReviewQueueFilters = options || {};
+    const includeTest = filters.includeTest ?? false;
+    const emailOnly = filters.emailOnly ?? (filters.pilotEligible ? true : false);
+    const minClass = filters.minClass || (filters.pilotEligible ? 'HOT_OR_WARM' : 'ALL');
+
+    // 1. Resolve Target Campaign if provided
+    let campaign: any = null;
+    if (filters.campaignId) {
+      campaign = await this.db.campaign.findUnique({
+        where: { id: filters.campaignId },
+      });
+    }
 
     const where: any = {
       status: { in: ['DRAFT', 'REVIEW_REQUIRED'] },
@@ -198,19 +209,133 @@ export class QueueService {
                   orderBy: { createdAt: 'desc' },
                   take: 1,
                 },
+                contacts: true,
+                campaign: true,
+                campaignBusinesses: { include: { campaign: true } },
               },
             },
           },
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: limit,
     });
 
-    return outreaches.map((o) => {
+    const items: ReviewQueueItem[] = [];
+
+    for (const o of outreaches) {
       const lead = o.lead;
       const biz = lead?.business;
       const audit = biz?.audits?.[0];
+      if (!lead || !biz) continue;
+
+      // Campaign Filter
+      if (campaign) {
+        const matchesDirect = biz.campaignId === campaign.id;
+        const matchesJoin = biz.campaignBusinesses?.some((cb: any) => cb.campaignId === campaign.id);
+        if (!matchesDirect && !matchesJoin) continue;
+
+        const isCityMatch = biz.city?.toLowerCase().trim() === campaign.city?.toLowerCase().trim();
+        const isCountryMatch =
+          biz.country?.toLowerCase().trim() === campaign.country?.toLowerCase().trim() ||
+          (['us', 'usa', 'united states'].includes(biz.country?.toLowerCase().trim() || '') &&
+            ['us', 'usa', 'united states'].includes(campaign.country?.toLowerCase().trim() || ''));
+        if (!isCityMatch || !isCountryMatch) continue;
+
+        const allowedNiches = campaign.niche
+          ? campaign.niche.split(',').map((n: string) => n.trim().toLowerCase())
+          : [];
+        const isNicheMatch = allowedNiches.some((n: string) => {
+          if (n === 'dentist' || n === 'dental') {
+            return (
+              biz.category?.toLowerCase().includes('dent') ||
+              biz.category?.toLowerCase().includes('orthodont') ||
+              biz.category?.toLowerCase().includes('oral')
+            );
+          }
+          if (n === 'hvac' || n === 'heating') {
+            return (
+              biz.category?.toLowerCase().includes('hvac') ||
+              biz.category?.toLowerCase().includes('air condition') ||
+              biz.category?.toLowerCase().includes('heating') ||
+              biz.category?.toLowerCase().includes('heat')
+            );
+          }
+          return biz.category?.toLowerCase().includes(n);
+        });
+        if (!isNicheMatch) continue;
+      }
+
+      // Country Filter
+      if (filters.country) {
+        const isCountry =
+          filters.country.toLowerCase() === 'us'
+            ? ['us', 'usa', 'united states'].includes(biz.country?.toLowerCase().trim() || '')
+            : biz.country?.toLowerCase().trim() === filters.country.toLowerCase().trim();
+        if (!isCountry) continue;
+      }
+
+      // Quality Filter
+      if (minClass === 'HOT_OR_WARM') {
+        const lClass = (lead.classification || '').toUpperCase();
+        if (lClass !== 'HOT' && lClass !== 'WARM') continue;
+      }
+
+      // Concrete Problem Check
+      let topProblems: string[] = [];
+      if (audit?.issuesJson) {
+        try {
+          topProblems = JSON.parse(audit.issuesJson);
+        } catch {}
+      }
+      if (lead.topProblems) {
+        try {
+          const parsed = JSON.parse(lead.topProblems);
+          if (Array.isArray(parsed) && parsed.length > 0) topProblems = parsed;
+        } catch {}
+      }
+      const hasConcreteObservation =
+        Boolean(audit?.loadTimeMs && audit.loadTimeMs > 0) ||
+        Boolean(audit?.mobileResponsive === false) ||
+        Boolean(audit?.sslValid === false) ||
+        Boolean(audit?.hasContactForm === false) ||
+        (Array.isArray(topProblems) && topProblems.length > 0);
+
+      let salesAngleProblem = '';
+      if (lead.salesAngle) {
+        try {
+          const parsed = JSON.parse(lead.salesAngle);
+          salesAngleProblem = parsed.problem || '';
+        } catch {}
+      }
+      const isGenericProblem =
+        !salesAngleProblem ||
+        salesAngleProblem.toLowerCase().includes('sub-optimal conversion flow') ||
+        salesAngleProblem.toLowerCase().includes('modernization') ||
+        salesAngleProblem.trim().length === 0;
+
+      if (!hasConcreteObservation && isGenericProblem) {
+        continue; // Missing concrete problem
+      }
+
+      // Business Name Safety Check
+      const rawBizName = biz.name ? biz.name.trim() : '';
+      const unsafeIdentityRegexes = [
+        /^(?:dentist|dentists|dentistry|dental|hvac|plumber|plumbing|doctor|lawyer|attorney|roofing|electrician|cleaning)\s+in\s+[a-zA-Z\s,.-]+$/i,
+        /^[a-zA-Z\s,.-]+,\s*(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA)\s+(?:dentists?|dentistry|hvac|plumbers?|doctors?|lawyers?|attorneys?|services)$/i,
+        /^(?:dentist|dentistry|dental|hvac|plumber|doctor|lawyer)\s+near\s+me$/i,
+        /^(?:best|top|affordable|emergency|cheap)\s+(?:dentists?|hvac|plumbers?|doctors?)\s+in\s+[a-zA-Z\s,.-]+$/i,
+      ];
+      if (!rawBizName || rawBizName.length < 2 || unsafeIdentityRegexes.some((rx) => rx.test(rawBizName))) {
+        continue; // BUSINESS_IDENTITY_UNSAFE
+      }
+
+      // Channel / Email Check
+      const emailContact = biz.contacts?.find((ct: any) => ct.type === 'EMAIL' && ct.status === 'VERIFIED_PUBLIC' && ct.sourceUrl);
+      if (emailOnly) {
+        if (o.channel !== 'EMAIL') continue;
+        if (!o.primaryContactValue && !emailContact) continue;
+        if (o.primaryContactValue && !o.primaryContactValue.includes('@')) continue;
+      }
 
       let salesAngleText = 'General outreach';
       if (o.salesAngle) {
@@ -222,20 +347,20 @@ export class QueueService {
         }
       }
 
-      return {
+      items.push({
         outreachId: o.id,
         leadId: o.leadId,
-        businessId: biz?.id || 'unknown',
-        businessName: biz?.name || 'Unknown',
-        city: biz?.city || 'Unknown',
-        website: biz?.website || undefined,
-        leadScore: lead?.leadOpportunityScore || 0,
-        classification: lead?.classification || 'WARM',
+        businessId: biz.id,
+        businessName: biz.name,
+        city: biz.city || 'Unknown',
+        website: biz.website || undefined,
+        leadScore: lead.leadOpportunityScore || 0,
+        classification: lead.classification || 'WARM',
         websiteQualityScore: audit?.score || 0,
-        contactValue: o.primaryContactValue || undefined,
+        contactValue: o.primaryContactValue || emailContact?.value || undefined,
         contactType: o.primaryContactType || 'EMAIL',
         salesAngle: salesAngleText,
-        recommendedService: lead?.recommendedService || 'WEBSITE_IMPROVEMENT',
+        recommendedService: lead.recommendedService || 'WEBSITE_IMPROVEMENT',
         subject: o.subject || 'No subject',
         bodyPreview: o.body.slice(0, 160) + (o.body.length > 160 ? '...' : ''),
         qualityScore: o.qualityScore,
@@ -243,13 +368,24 @@ export class QueueService {
         evidenceValid: o.evidenceValid,
         identityValid: o.identityValid,
         isSuppressed: o.status === 'SUPPRESSED',
-        isExpired: Boolean(o.expiresAt && o.expiresAt < new Date()),
         status: (o.status as OutreachLifecycleStatus) || 'DRAFT',
         approvedAt: o.approvedAt || undefined,
         approvedBy: o.approvedBy || undefined,
-      };
+      });
+    }
+
+    // Sort: 1. HOT > WARM > COLD, 2. Score desc
+    items.sort((a, b) => {
+      const classWeight = (c: string) => (c === 'HOT' ? 3 : c === 'WARM' ? 2 : 1);
+      if (classWeight(b.classification) !== classWeight(a.classification)) {
+        return classWeight(b.classification) - classWeight(a.classification);
+      }
+      return b.leadScore - a.leadScore;
     });
+
+    return items.slice(0, limit);
   }
 }
 
 export const queueService = new QueueService();
+

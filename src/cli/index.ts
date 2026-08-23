@@ -1870,11 +1870,24 @@ program
 program
   .command('review-interactive')
   .description('Interactive human review interface for pending outreach drafts')
+  .option('--campaign-id <id>', 'Target specific campaign ID')
+  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('--country <code>', 'Target country code (e.g. US)')
+  .option('-e, --email-only', 'Review verified email candidates only', false)
+  .option('--pilot-eligible', 'Enforce strict pilot quality and provenance criteria', false)
   .option('--include-test', 'Include test fixtures in review queue (Default: false)', false)
+  .option('-l, --limit <number>', 'Number of business groups to review', '50')
   .action(async (options) => {
     try {
       const { interactiveReviewerService } = await import('../modules/outreach/review/interactive-reviewer.service.js');
-      await interactiveReviewerService.startInteractiveCli({ includeTest: Boolean(options.includeTest) });
+      await interactiveReviewerService.startInteractiveCli({
+        campaignId: options.campaignId || options.campaign,
+        country: options.country,
+        emailOnly: Boolean(options.emailOnly),
+        pilotEligible: Boolean(options.pilotEligible),
+        includeTest: Boolean(options.includeTest),
+        limit: parseInt(options.limit, 10) || 50,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Failed in interactive review', msg);
@@ -1942,9 +1955,30 @@ program
           c.approvalStatus.slice(0, 12).padEnd(14) +
           (c.blockingReason || 'None (Ready for Pilot)')
         );
+
+        console.log(`\n  --- Candidate #${i + 1} Record Audit ---`);
+        console.log(`  Business:               ${c.businessName}`);
+        console.log(`  City:                   ${c.city || 'Dallas'}`);
+        console.log(`  State:                  ${c.state || 'TX'}`);
+        console.log(`  Country:                ${c.country || 'US'}`);
+        console.log(`  Niche:                  ${c.niche || 'N/A'}`);
+        console.log(`  Campaign Match:         ${c.campaignMatch}`);
+        console.log(`  Email:                  ${c.recipientEmail}`);
+        console.log(`  Email Syntax:           ${c.emailSyntax}`);
+        console.log(`  VERIFIED_PUBLIC:        ${c.isVerifiedPublic ? 'YES' : 'NO'}`);
+        console.log(`  Exact Source URL:       ${c.exactSourceUrl}`);
+        console.log(`  Email As Found:         ${c.emailAsFound}`);
+        console.log(`  Source Context:         ${c.sourceContext}`);
+        console.log(`  Verification Timestamp: ${c.verificationTimestamp || 'N/A'}`);
+        console.log(`  Business Match:         ${c.businessMatch}`);
+        console.log(`  Location Match:         ${c.locationMatch}`);
+        console.log(`  Candidate Quality:      ${c.candidateQuality}`);
+        console.log(`  Live Send State:        ${c.liveSendState}`);
+        console.log(`  Blocking Reasons:       ${c.blockingReason || 'None'}`);
         if (c.provenanceWarning) {
-          console.log(''.padEnd(6) + `⚠ Provenance: ${c.provenanceWarning}`);
+          console.log(`  ⚠ Provenance:           ${c.provenanceWarning}`);
         }
+        console.log('  ----------------------------------------\n');
       }
 
       console.log('\n--------------------------------------------------------------------------------------------------------');
@@ -2107,13 +2141,24 @@ program
   .command('review-queue')
   .description('Display pending human review queue with draft previews and quality gates')
   .option('-l, --limit <number>', 'Number of items to inspect', '10')
+  .option('--campaign-id <id>', 'Target specific campaign ID')
+  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('--country <code>', 'Target country code (e.g. US)')
+  .option('-e, --email-only', 'Show verified email candidates only', false)
+  .option('--pilot-eligible', 'Enforce strict pilot quality and provenance criteria', false)
   .option('--include-test', 'Include test fixtures in review queue (Default: false)', false)
   .action(async (options) => {
     try {
       const { queueService } = await import('../modules/campaigns/queue.service.js');
       const items = await queueService.getReviewQueue(
         parseInt(options.limit, 10) || 10,
-        { includeTest: Boolean(options.includeTest) }
+        {
+          campaignId: options.campaignId || options.campaign,
+          country: options.country,
+          emailOnly: Boolean(options.emailOnly),
+          pilotEligible: Boolean(options.pilotEligible),
+          includeTest: Boolean(options.includeTest),
+        }
       );
 
       console.log('\n======================================================================');
@@ -2121,7 +2166,7 @@ program
       console.log('======================================================================\n');
 
       if (items.length === 0) {
-        console.log('No pending outreach drafts requiring review.\n');
+        console.log('NO HIGH-CONFIDENCE PILOT CANDIDATES\n');
         return;
       }
 
@@ -2135,7 +2180,7 @@ program
         console.log(`│ Quality    : Score: ${item.qualityScore}/100 [Band: ${item.qualityBand}] | Evidence: ${item.evidenceValid ? 'VALID' : 'INVALID'} | Identity: ${item.identityValid ? 'MATCHED' : 'UNMATCHED'}`);
         console.log(`│ Subject    : "${item.subject}"`);
         console.log(`│ Message    :\n│   "${item.bodyPreview.replace(/\n/g, '\n│   ')}"`);
-        console.log(`│ Status     : ${item.status} | Suppression: ${item.isSuppressed ? 'SUPPRESSED' : 'CLEAR'} | Expired: ${item.isExpired ? 'EXPIRED' : 'ACTIVE'}`);
+        console.log(`│ Status     : ${item.status} | Suppression: ${item.isSuppressed ? 'SUPPRESSED' : 'CLEAR'}`);
         console.log(`└── To approve: npm run cli -- approve-draft ${item.outreachId}\n`);
       }
     } catch (err: unknown) {

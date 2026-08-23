@@ -137,12 +137,19 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
 
     // Remove any trailing dots
     cleaned = cleaned.replace(/\.+$/, '');
+
+    // Capitalize first character
+    if (cleaned.length > 0) {
+      cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    }
     return cleaned;
   }
 
   private cleanOpportunityText(text?: string): string {
-    if (!text) return 'targeted technical and performance refinements';
+    if (!text) return 'page loading and mobile layout';
     let cleaned = text.trim();
+    cleaned = cleaned.replace(/^streamline mobile asset delivery and script loading for faster page speed\.?/i, 'speeding up mobile asset and script loading');
+    cleaned = cleaned.replace(/^optimize asset delivery, compression, and script execution for faster page speed\.?/i, 'asset compression and page loading');
     cleaned = cleaned.replace(/\.+$/, '');
     return cleaned;
   }
@@ -166,6 +173,14 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
       `Observation for ${businessName}`,
     ];
 
+    const isDental = Boolean(
+      params.niche &&
+      (params.niche.toLowerCase().includes('dent') ||
+        params.niche.toLowerCase().includes('orthodont') ||
+        params.niche.toLowerCase().includes('oral'))
+    );
+    const audienceTerm = isDental ? 'patients' : 'visitors and customers';
+
     const evidence = this.cleanEvidenceText(salesAngle.evidence[0]);
     const opportunity = this.cleanOpportunityText(salesAngle.opportunity);
     const signature = this.formatSignature(sender);
@@ -184,13 +199,14 @@ Best regards,
 
 ${signature}`;
     } else {
+      const lowerEvidence = evidence.charAt(0).toLowerCase() + evidence.slice(1);
       body = `${greeting}
 
-I was taking a look at ${businessName}'s website and noticed ${evidence}.
+I was taking a look at ${businessName}'s website and noticed ${lowerEvidence}.
 
-There are a couple of small refinements around ${opportunity.toLowerCase()} that could help create a smoother experience for mobile visitors.
+A few small adjustments around ${opportunity.toLowerCase()} could help create a smoother mobile experience for ${audienceTerm}.
 
-Would you be open to me sharing a quick 2-minute breakdown of what I found?
+If helpful, I can send over a short breakdown of what I found.
 
 Best regards,
 
@@ -224,6 +240,14 @@ ${signature}`;
       `Question for ${businessName}`,
     ];
 
+    const isDental = Boolean(
+      params.niche &&
+      (params.niche.toLowerCase().includes('dent') ||
+        params.niche.toLowerCase().includes('orthodont') ||
+        params.niche.toLowerCase().includes('oral'))
+    );
+    const clientTerm = isDental ? 'patients' : 'homeowners and customers';
+
     const evidence = this.cleanEvidenceText(salesAngle.evidence[0]);
     const opportunity = this.cleanOpportunityText(salesAngle.opportunity);
     const signature = this.formatSignature(sender);
@@ -234,7 +258,7 @@ ${signature}`;
 
 I hope your week is going well. I was researching local ${params.niche} practices in ${params.city} and couldn't identify an official website for ${businessName}.
 
-Having a fast, simple online presence makes it much easier for new customers to check your hours, see services, and request appointments.
+Having a fast, simple online presence makes it much easier for new ${clientTerm} to check your hours, see services, and request appointments.
 
 I work with local businesses to design straightforward, professional websites without complicated upkeep.
 
@@ -244,15 +268,14 @@ Best regards,
 
 ${signature}`;
     } else {
+      const lowerEvidence = evidence.charAt(0).toLowerCase() + evidence.slice(1);
       body = `${greeting}
 
-I was reviewing ${businessName}'s online presence and noticed ${evidence}.
-
-Specifically, ${opportunity.toLowerCase()}.
+I was reviewing ${businessName}'s online presence and noticed ${lowerEvidence}.
 
 ${salesAngle.businessImpact}
 
-I work on web performance and mobile development for local businesses. I'd be happy to put together a brief, no-obligation summary of the specific areas that could be streamlined.
+I work on website performance and mobile usability for local businesses. If helpful, I'd be happy to share a brief summary of the specific fixes.
 
 Would you be open to taking a look?
 
@@ -321,9 +344,9 @@ ${evidenceBullets}
 
 ${salesAngle.businessImpact}
 
-I specialize in technical website optimization and mobile application development. Rather than pitching a complete overhaul, I typically focus on solving specific friction points like these to help improve visitor experience and conversion.
+I specialize in technical website optimization and mobile usability. Rather than pitching a complete overhaul, I focus on resolving specific points like these to help improve the visitor experience.
 
-Would you be interested in me sending over a short breakdown of the recommended fixes?
+If helpful, I can send over a short breakdown of what I found.
 
 Best regards,
 

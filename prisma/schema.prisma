@@ -31,10 +31,11 @@ model Business {
   updatedAt   DateTime @updatedAt
 
   // Relationships
-  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  audits      WebsiteAudit[]
-  lead        Lead?
-  contacts    Contact[]
+  campaign           Campaign?          @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  campaignBusinesses CampaignBusiness[]
+  audits             WebsiteAudit[]
+  lead               Lead?
+  contacts           Contact[]
 
   // Deduplication & search indexes
   @@unique([name, city, category], name: "unique_business_per_locality")
@@ -166,6 +167,8 @@ model Contact {
   confidence      String    @default("HIGH") // HIGH, MEDIUM, LOW
   qualityScore    Float     @default(0.0)    // 0 to 100
   status          String    @default("VERIFIED_PUBLIC") // VERIFIED_PUBLIC, PUBLIC_UNVERIFIED, NONE_FOUND, INVALID, BLOCKED
+  emailAsFound    String?   // Exact raw email string as discovered in source
+  sourceContext   String?   // Context snippet / surrounding element around found email
   isVerified      Boolean   @default(false)
   isPublic        Boolean   @default(true)
   discoveredAt    DateTime  @default(now())
@@ -338,28 +341,48 @@ model Suppression {
 // Defines campaign targeting, parameters, pacing targets, and tracking.
 // ------------------------------------------------------------------------------
 model Campaign {
-  id                        String      @id @default(uuid())
-  name                      String      @unique
-  country                   String      @default("US")
+  id                        String             @id @default(uuid())
+  name                      String             @unique
+  country                   String             @default("US")
   state                     String?
   city                      String
   niche                     String
-  targetBusinesses          Int         @default(100)
-  minLeadScore              Float       @default(60.0)
-  minContactQuality         Float       @default(0.0)
-  maxDiscoveryPerRun        Int         @default(25)
-  maxEmailsPerDay           Int         @default(20)
-  targetWebsiteOpportunity  Float?      @default(50.0)
-  preferredService          String      @default("WEBSITE_REBUILD")
-  status                    String      @default("ACTIVE") // ACTIVE, PAUSED, COMPLETED, ARCHIVED
-  createdAt                 DateTime    @default(now())
-  updatedAt                 DateTime    @updatedAt
+  targetBusinesses          Int                @default(100)
+  minLeadScore              Float              @default(60.0)
+  minContactQuality         Float              @default(0.0)
+  maxDiscoveryPerRun        Int                @default(25)
+  maxEmailsPerDay           Int                @default(20)
+  targetWebsiteOpportunity  Float?             @default(50.0)
+  preferredService          String             @default("WEBSITE_REBUILD")
+  status                    String             @default("ACTIVE") // ACTIVE, PAUSED, COMPLETED, ARCHIVED
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
 
   // Relationships
   businesses                Business[]
+  campaignBusinesses        CampaignBusiness[]
 
   @@index([status])
   @@index([country, city, niche])
   @@map("campaigns")
+}
+
+// ------------------------------------------------------------------------------
+// 10. CampaignBusiness Model (Join table for isolated campaign membership)
+// ------------------------------------------------------------------------------
+model CampaignBusiness {
+  id          String   @id @default(uuid())
+  campaignId  String
+  businessId  String
+  assignedAt  DateTime @default(now())
+
+  // Relationships
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, businessId], name: "unique_campaign_business")
+  @@index([campaignId])
+  @@index([businessId])
+  @@map("campaign_businesses")
 }
 

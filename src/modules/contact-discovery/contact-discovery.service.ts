@@ -225,6 +225,10 @@ export class ContactDiscoveryService {
           confidence: val.domainMatchesOfficialWebsite ? 'HIGH' : 'MEDIUM',
           qualityScore: quality,
           status: 'VERIFIED_PUBLIC',
+          emailAsFound: item.emailAsFound,
+          sourceContext: item.sourceContext,
+          isVerified: true,
+          isPublic: true,
           discoveredAt: new Date(),
         });
       }

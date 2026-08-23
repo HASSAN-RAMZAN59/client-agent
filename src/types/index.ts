@@ -273,6 +273,10 @@ export interface DiscoveredContactRecord {
   confidence: AuditConfidence;
   qualityScore: number;
   status: ContactDiscoveryStatus;
+  emailAsFound?: string;
+  sourceContext?: string;
+  isVerified?: boolean;
+  isPublic?: boolean;
   discoveredAt: Date;
 }
 
@@ -302,6 +306,8 @@ export interface DiscoveredContactInput {
   confidence?: AuditConfidence;
   qualityScore?: number;
   status?: ContactDiscoveryStatus;
+  emailAsFound?: string;
+  sourceContext?: string;
   isVerified?: boolean;
   isPublic?: boolean;
 }
@@ -925,9 +931,18 @@ export interface ReviewQueueItem {
   evidenceValid: boolean;
   identityValid: boolean;
   isSuppressed: boolean;
-  isExpired: boolean;
   status: OutreachLifecycleStatus;
   approvedAt?: Date;
   approvedBy?: string;
 }
+
+export interface ReviewQueueFilters {
+  campaignId?: string;
+  country?: string;
+  emailOnly?: boolean;
+  pilotEligible?: boolean;
+  minClass?: 'HOT_OR_WARM' | 'ALL';
+  includeTest?: boolean;
+}
+
 
