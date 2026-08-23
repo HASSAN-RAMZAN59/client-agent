@@ -290,11 +290,11 @@ ${signature}`;
       const lowerEvidence = evidence.charAt(0).toLowerCase() + evidence.slice(1);
       body = `${greeting}
 
-I was reviewing ${businessName}'s online presence and noticed ${lowerEvidence}.
+I was reviewing your website and ${lowerEvidence}.
 
 ${salesAngle.businessImpact}
 
-I work on website performance and mobile usability for local businesses. If helpful, I'd be happy to share a brief summary of the specific fixes.
+I work on website performance and mobile usability for local businesses. If helpful, I can send over a short breakdown of what I found.
 
 Would you be open to taking a look?
 

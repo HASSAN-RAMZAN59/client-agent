@@ -77,16 +77,19 @@ export function buildDetailedSalesAngle(context: PersonalizationContext): Detail
 
   // Case 5: Slow Loading Performance
   if (lead.topOpportunitySignals.includes('SLOW_LOADING') || (audit?.loadTimeMs && audit.loadTimeMs > 3500)) {
-    const loadTimeSec = audit?.loadTimeMs ? (audit.loadTimeMs / 1000).toFixed(1) : '4.5+';
+    const loadTimeSec = audit?.loadTimeMs ? (audit.loadTimeMs / 1000).toFixed(1) : '4.5';
+    const audienceDesc = isDental
+      ? 'prospective patients browsing the site'
+      : 'visitors looking through your services';
     return {
       problem: `Slow page loading speed (${loadTimeSec}s on mobile)`,
       evidence: [
-        `Mobile audit recorded approximately ${loadTimeSec}s initial load time.`,
+        `my mobile check recorded an initial load time of about ${loadTimeSec} seconds.`,
         'Performance metrics show opportunity to improve initial loading speed.',
       ],
       opportunity: 'Streamline mobile asset delivery and script loading for faster page speed.',
       recommendedService: 'WEBSITE_IMPROVEMENT',
-      businessImpact: 'Improving load time could make the mobile experience smoother for visitors.',
+      businessImpact: `Improving the initial load time could make the mobile experience smoother for ${audienceDesc}.`,
       confidence: 'HIGH',
     };
   }
