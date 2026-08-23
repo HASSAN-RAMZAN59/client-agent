@@ -101,7 +101,7 @@ describe('Phase 6: AI Personalization & Outreach Content Engine', () => {
 
       // Variant C: Audit-Based (100–180 words)
       expect(varC.variant).toBe('VARIANT_C_AUDIT');
-      expect(varC.body).toContain('5.2s');
+      expect(varC.body).toContain('5.2 seconds');
     });
   });
 
@@ -110,7 +110,7 @@ describe('Phase 6: AI Personalization & Outreach Content Engine', () => {
       const result = await provider.generate(mockContext);
       const allText = result.variants.map((v) => v.body).join('\n');
 
-      expect(allText).toContain('5.2s');
+      expect(allText).toContain('5.2 seconds');
       expect(allText).not.toMatch(/\$\d+/); // No fabricated dollar figures
       expect(allText).not.toMatch(/\d+\s+employees/); // No fabricated employee counts
       expect(allText).not.toMatch(/losing customers/i); // No fear-based spam claims
