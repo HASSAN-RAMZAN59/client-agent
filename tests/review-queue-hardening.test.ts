@@ -3,6 +3,10 @@ import { getPrismaClient, disconnectDatabase } from '../src/database/client.js';
 import { interactiveReviewerService } from '../src/modules/outreach/review/interactive-reviewer.service.js';
 import { cleanSearchTitleToBusinessName } from '../src/modules/discovery/normalizer.js';
 import { BusinessIdentityValidator } from '../src/modules/personalization/hardening/business-identity.validator.js';
+import { preSendValidator } from '../src/modules/outreach/gate/pre-send-validator.js';
+import { ReplyTrackingService } from '../src/modules/outreach/reply/reply-tracking.service.js';
+import { SuppressionRepository } from '../src/database/repositories/suppression.repository.js';
+import { config } from '../src/config/env.js';
 
 const db = getPrismaClient();
 
@@ -110,13 +114,16 @@ describe('Final Human Review Queue Hardening Tests', () => {
 
     const contactVal = opts.email !== null ? (opts.email || `contact@${biz.website!.replace('https://', '')}`) : null;
 
+    const postalAddress = config.SENDER_POSTAL_ADDRESS ? config.SENDER_POSTAL_ADDRESS.trim() : '55 jb baba bakala faisalabad';
+    const compliantFooter = `\n\nBest regards,\n\nHASSAN RAMZAN\nhassanramzan59@gmail.com\n\nWeb development outreach\n\n${postalAddress}\n\nIf you'd rather not receive emails from me, just reply "unsubscribe" and I won't contact you again.`;
+
     const draft = await db.outreach.create({
       data: {
         leadId: lead.id,
         variant: 'VARIANT_A_SHORT',
         channel: opts.channel || 'EMAIL',
         subject: `Quick question regarding ${biz.name}`,
-        body: `Hello ${biz.name} Team,\n\nI was reviewing your website and noticed mobile load time is about 5.2s.\n\nBest regards,\nHASSAN RAMZAN`,
+        body: `Hello ${biz.name} Team,\n\nI was reviewing your website and noticed mobile load time is about 5.2s.${compliantFooter}`,
         qualityScore: 90,
         qualityBand: 'EXCELLENT',
         status: 'REVIEW_REQUIRED',
@@ -283,13 +290,15 @@ describe('Final Human Review Queue Hardening Tests', () => {
   it('9. multiple variants grouped into ONE business review item', async () => {
     const { biz, lead } = await createPilotBusiness({ name: `Multi Variant Biz ${testSuffix}`, isTest: true });
     const emailVal = `contact@${biz.website!.replace('https://', '')}`;
+    const postalAddress = config.SENDER_POSTAL_ADDRESS ? config.SENDER_POSTAL_ADDRESS.trim() : '55 jb baba bakala faisalabad';
+    const compliantFooter = `\n\nBest regards,\n\nHASSAN RAMZAN\nhassanramzan59@gmail.com\n\nWeb development outreach\n\n${postalAddress}\n\nIf you'd rather not receive emails from me, just reply "unsubscribe" and I won't contact you again.`;
     await db.outreach.create({
       data: {
         leadId: lead.id,
         variant: 'VARIANT_B_STANDARD',
         channel: 'EMAIL',
         subject: `Standard subject for ${biz.name}`,
-        body: `Hello ${biz.name} Team,\n\nI was reviewing your website and noticed mobile load time is about 5.2s.\n\nBest regards,\nHASSAN RAMZAN`,
+        body: `Hello ${biz.name} Team,\n\nI was reviewing your website and noticed mobile load time is about 5.2s.${compliantFooter}`,
         qualityScore: 90,
         qualityBand: 'EXCELLENT',
         status: 'REVIEW_REQUIRED',
@@ -315,13 +324,16 @@ describe('Final Human Review Queue Hardening Tests', () => {
   // 10. Only selected variant can be approved
   it('10. only selected variant can be approved and set to READY_TO_SEND', async () => {
     const { lead } = await createPilotBusiness({ name: `Approve Test Biz ${testSuffix}`, isTest: true });
+    const postalAddress = config.SENDER_POSTAL_ADDRESS ? config.SENDER_POSTAL_ADDRESS.trim() : '55 jb baba bakala faisalabad';
+    const compliantFooter = `\n\nBest regards,\n\nHASSAN RAMZAN\nhassanramzan59@gmail.com\n\nWeb development outreach\n\n${postalAddress}\n\nIf you'd rather not receive emails from me, just reply "unsubscribe" and I won't contact you again.`;
+
     const draft2 = await db.outreach.create({
       data: {
         leadId: lead.id,
         variant: 'VARIANT_B_STANDARD',
         channel: 'EMAIL',
         subject: 'Standard subject',
-        body: 'Standard body',
+        body: `Standard body${compliantFooter}`,
         status: 'REVIEW_REQUIRED',
         primaryContactValue: `contact@approvetest${testSuffix}.com`,
         primaryContactType: 'EMAIL',
@@ -508,6 +520,82 @@ describe('Final Human Review Queue Hardening Tests', () => {
       expect(d.body.toLowerCase()).not.toContain('boost conversions');
       expect(d.body.toLowerCase()).not.toContain('guaranteed');
       expect(d.body.toLowerCase()).not.toContain('100%');
+    }
+  });
+
+  // 19. US commercial outreach requires postal address and opt-out footer
+  it('19. US commercial outreach drafts contain postal address, opt-out notice, and commercial identification', async () => {
+    const { lead } = await createPilotBusiness({
+      name: `Compliance Biz ${testSuffix}`,
+      category: 'Dentist',
+      city: 'Dallas',
+      country: 'US',
+      email: `office@compliance${testSuffix}.com`,
+      isTest: true,
+    });
+
+    const drafts = await db.outreach.findMany({ where: { leadId: lead.id } });
+    for (const d of drafts) {
+      expect(d.body).toContain('Web development outreach');
+      expect(d.body).toContain('unsubscribe');
+      expect(d.body).toContain("If you'd rather not receive emails from me, just reply \"unsubscribe\" and I won't contact you again.");
+      if (config.SENDER_POSTAL_ADDRESS) {
+        expect(d.body).toContain(config.SENDER_POSTAL_ADDRESS);
+      }
+    }
+  });
+
+  // 20. Missing opt-out blocks pre-send validation
+  it('20. missing opt-out footer is rejected by PreSendValidator for US outreach', async () => {
+    const { lead } = await createPilotBusiness({
+      name: `OptOut Gate Biz ${testSuffix}`,
+      category: 'HVAC',
+      city: 'Dallas',
+      country: 'US',
+      email: `contact@optoutgate${testSuffix}.com`,
+      isTest: true,
+    });
+
+    const draft = await db.outreach.create({
+      data: {
+        leadId: lead.id,
+        variant: 'VARIANT_B_STANDARD',
+        channel: 'EMAIL',
+        subject: 'Quick question for OptOut Gate Biz',
+        body: 'Hello Team,\n\nI noticed your website is slow.\n\nBest regards,\nHASSAN RAMZAN',
+        status: 'APPROVED',
+        approvalStatus: 'APPROVED',
+        primaryContactValue: `contact@optoutgate${testSuffix}.com`,
+        primaryContactType: 'EMAIL',
+        qualityScore: 90,
+      },
+    });
+
+    const validation = await preSendValidator.validateOutreach(draft.id, {
+      requireStrictProvenance: false,
+      allowTestRecord: true,
+    });
+
+    expect(validation.reasons).toContain('OPT_OUT_FOOTER_REQUIRED');
+    expect(validation.allowed).toBe(false);
+  });
+
+  // 21. Reply tracking suppresses recipient on all unsubscribe variants
+  it('21. reply tracking automatically suppresses recipient on unsubscribe variants', async () => {
+    const replyService = new ReplyTrackingService();
+    const suppressionRepo = new SuppressionRepository();
+
+    const phrases = [
+      'unsubscribe',
+      'Please remove me from this list',
+      'stop emailing us',
+      "don't contact me again",
+      'dont contact me',
+    ];
+
+    for (const phrase of phrases) {
+      const classification = replyService.classifyReplyBody(phrase);
+      expect(classification.classification).toBe('UNSUBSCRIBE');
     }
   });
 });

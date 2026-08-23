@@ -445,6 +445,29 @@ export class PreSendValidator {
       warnings.push('BUSINESS_NAME_NOT_MENTIONED_IN_BODY');
     }
 
+    // 11. US Commercial Email Compliance Gate (Postal Address & Opt-out)
+    const isUSOutreach = !business?.country || ['US', 'USA', 'UNITED STATES'].includes(business.country.toUpperCase().trim());
+    if (isEmailChannel && isUSOutreach) {
+      // Postal Address Requirement
+      const postalAddress = config.SENDER_POSTAL_ADDRESS ? config.SENDER_POSTAL_ADDRESS.trim() : '';
+      if (!postalAddress) {
+        reasons.push('SENDER_POSTAL_ADDRESS_REQUIRED');
+      }
+
+      // Opt-out Footer Requirement
+      const bodyLower = body.toLowerCase();
+      const hasOptOut = bodyLower.includes('unsubscribe') || bodyLower.includes('opt out') || bodyLower.includes('opt-out');
+      if (!hasOptOut) {
+        reasons.push('OPT_OUT_FOOTER_REQUIRED');
+      }
+
+      // Commercial Identification Requirement
+      const hasCommercialId = bodyLower.includes('web development outreach') || bodyLower.includes('commercial outreach') || bodyLower.includes('outreach');
+      if (!hasCommercialId) {
+        warnings.push('COMMERCIAL_IDENTIFICATION_MISSING');
+      }
+    }
+
     const allowed = reasons.length === 0;
 
     const details = {

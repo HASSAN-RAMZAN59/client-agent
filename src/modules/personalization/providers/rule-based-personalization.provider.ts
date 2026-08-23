@@ -7,6 +7,7 @@ import {
 import { PersonalizationProvider } from './personalization-provider.interface.js';
 import { buildDetailedSalesAngle } from '../sales-angle.builder.js';
 import { OutreachQualityGuard } from '../quality-guard.js';
+import { config } from '../../../config/env.js';
 import { logger } from '../../../utils/logger.js';
 
 export class RuleBasedPersonalizationProvider implements PersonalizationProvider {
@@ -118,10 +119,28 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
     };
   }
 
-  private formatSignature(sender: { name: string; company?: string }): string {
-    return sender.company && sender.company.trim().length > 0
-      ? `${sender.name}\n${sender.company}`
-      : sender.name;
+  private formatSignature(sender: { name: string; company?: string; email?: string }): string {
+    const senderName = sender.name || 'HASSAN RAMZAN';
+    const senderEmail = sender.email || 'hassanramzan59@gmail.com';
+    const postalAddress = config.SENDER_POSTAL_ADDRESS ? config.SENDER_POSTAL_ADDRESS.trim() : '';
+
+    const lines = [
+      senderName,
+      senderEmail,
+      '',
+      'Web development outreach',
+    ];
+
+    if (postalAddress) {
+      lines.push('', postalAddress);
+    }
+
+    lines.push(
+      '',
+      'If you\'d rather not receive emails from me, just reply "unsubscribe" and I won\'t contact you again.'
+    );
+
+    return lines.join('\n');
   }
 
   private cleanEvidenceText(text?: string): string {

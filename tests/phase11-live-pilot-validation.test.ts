@@ -88,7 +88,7 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
         channel: 'EMAIL',
         variant: 'VARIANT_B_STANDARD',
         subject: `Website observation for Phase11 Valid Dental ${testSuffix}`,
-        body: `Hello Team,\n\nI was looking over Phase11 Valid Dental ${testSuffix} in Dallas and noticed a few mobile menu improvements.\n\nBest regards,\n\nHASSAN RAMZAN`,
+        body: `Hello Team,\n\nI was looking over Phase11 Valid Dental ${testSuffix} in Dallas and noticed a few mobile menu improvements.\n\nBest regards,\n\nHASSAN RAMZAN\nhassanramzan59@gmail.com\n\nWeb development outreach\n\n55 jb baba bakala faisalabad\n\nIf you'd rather not receive emails from me, just reply "unsubscribe" and I won't contact you again.`,
         primaryContactValue: testRecipient,
         primaryContactType: 'EMAIL',
         status: 'APPROVED',

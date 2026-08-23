@@ -32,7 +32,9 @@ export class ReplyTrackingService {
       text.includes('remove me') ||
       text.includes('opt out') ||
       text.includes('stop emailing') ||
-      text.includes('take me off your list')
+      text.includes('take me off your list') ||
+      text.includes("don't contact me") ||
+      text.includes('dont contact me')
     ) {
       return { classification: 'UNSUBSCRIBE', sentiment: 'NEGATIVE', intentCategory: 'UNSUBSCRIBE' };
     }
