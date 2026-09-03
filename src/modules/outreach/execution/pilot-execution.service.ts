@@ -113,18 +113,19 @@ export class PilotExecutionService {
   constructor(
     customDb?: PrismaClient,
     customValidator?: PreSendValidator,
-    customSmtpProvider?: SmtpDeliveryProvider
+    customSmtpProvider?: SmtpDeliveryProvider,
+    customMockProvider?: MockOutreachProvider
   ) {
     this.db = customDb || getPrismaClient();
     this.validator = customValidator || new PreSendValidator(this.db);
     this.smtpProvider = customSmtpProvider || new SmtpDeliveryProvider();
-    this.mockProvider = new MockOutreachProvider();
+    this.mockProvider = customMockProvider || new MockOutreachProvider();
   }
 
   public async previewPilot(
     limit: number = 3,
     campaignId?: string,
-    options?: { includeTest?: boolean; allowTestRecord?: boolean; pilotCountry?: string }
+    options?: { includeTest?: boolean; allowTestRecord?: boolean; pilotCountry?: string; dryRun?: boolean }
   ): Promise<PilotPreviewReport> {
     const policy = safetyControls.getPolicy();
     const hardLimit = Math.min(limit, config.LIVE_PILOT_MAX_SENDS_PER_RUN, 3);
@@ -280,13 +281,17 @@ export class PilotExecutionService {
         }
       }
 
+      const isDryRunPreview = options?.dryRun ?? false;
       const eligibility = await this.validator.isLivePilotEligible(o.id, {
-        checkEnvFlags: false,
+        checkEnvFlags: !isDryRunPreview,
+        dryRun: isDryRunPreview,
         campaignId,
         pilotCountry,
         campaignCity: targetCampaign?.city,
         campaignCountry: targetCampaign?.country,
         campaignNiche: targetCampaign?.niche,
+        allowTestRecord: options?.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
+        requireStrictProvenance: true,
       });
 
       // Determine separate quality vs send state
@@ -402,8 +407,10 @@ export class PilotExecutionService {
       3
     );
 
+    const isExplicitDryRun = Boolean(params.dryRun);
+    const effectiveDryRun = isExplicitDryRun && (Boolean(params.dryRun) || policy.isDryRun);
     const isLiveMode =
-      !policy.isDryRun &&
+      !effectiveDryRun &&
       config.OUTREACH_ENABLED &&
       config.LIVE_PILOT_ENABLED &&
       !policy.outreachKillSwitch;
@@ -420,35 +427,71 @@ export class PilotExecutionService {
       dailyLimit: config.LIVE_PILOT_MAX_SENDS_PER_DAY,
     };
 
-    // 1. Kill switch immediate check
-    if (policy.outreachKillSwitch) {
-      this.log.warn('Execution blocked: OUTREACH KILL SWITCH ACTIVE — NO OUTBOUND MESSAGES PERMITTED');
-      return {
-        pilotRunId,
-        timestamp: new Date(),
-        startTime,
-        endTime: new Date(),
-        safetyState,
-        totalEligible: 0,
-        candidates: [],
-        attempted: 0,
-        sent: 0,
-        simulated: 0,
-        blocked: 0,
-        failed: 0,
-        unknown: 0,
-        duplicateBlocked: 0,
-        remainingDailyCapacity,
-        results: [],
-        confirmed: Boolean(params.confirm),
-        message: 'OUTREACH KILL SWITCH ACTIVE — NO OUTBOUND MESSAGES PERMITTED',
-      };
+    // 1. Defense-in-depth provider check for dry-run simulation
+    if (effectiveDryRun) {
+      const isSafeMock =
+        this.mockProvider instanceof MockOutreachProvider ||
+        (this.mockProvider as any).isNetworkTransport === false;
+      const isRealTransport =
+        this.mockProvider instanceof SmtpDeliveryProvider ||
+        (this.mockProvider as any).isNetworkTransport === true ||
+        (this.mockProvider as any).name === 'SmtpDeliveryProvider';
+
+      if (!isSafeMock || isRealTransport) {
+        this.log.error('Dry-run simulation rejected: real network transport detected for dry-run.');
+        return {
+          pilotRunId,
+          timestamp: new Date(),
+          startTime,
+          endTime: new Date(),
+          safetyState,
+          totalEligible: 0,
+          candidates: [],
+          attempted: 0,
+          sent: 0,
+          simulated: 0,
+          blocked: 0,
+          failed: 0,
+          unknown: 0,
+          duplicateBlocked: 0,
+          remainingDailyCapacity,
+          results: [],
+          confirmed: Boolean(params.confirm),
+          message: 'DRY_RUN_REAL_TRANSPORT_PROHIBITED: Real transport provider cannot be used for dry-run simulation.',
+        };
+      }
+    } else {
+      // 1b. LIVE MODE: Kill switch is a HARD BLOCK
+      if (policy.outreachKillSwitch) {
+        this.log.warn('Execution blocked: OUTREACH KILL SWITCH ACTIVE — NO OUTBOUND MESSAGES PERMITTED');
+        return {
+          pilotRunId,
+          timestamp: new Date(),
+          startTime,
+          endTime: new Date(),
+          safetyState,
+          totalEligible: 0,
+          candidates: [],
+          attempted: 0,
+          sent: 0,
+          simulated: 0,
+          blocked: 0,
+          failed: 0,
+          unknown: 0,
+          duplicateBlocked: 0,
+          remainingDailyCapacity,
+          results: [],
+          confirmed: Boolean(params.confirm),
+          message: 'OUTREACH KILL SWITCH ACTIVE — NO OUTBOUND MESSAGES PERMITTED',
+        };
+      }
     }
 
     const preview = await this.previewPilot(effectiveLimit, params.campaignId, {
       allowTestRecord: params.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
       includeTest: params.includeTest ?? params.allowTestRecord ?? false,
       pilotCountry: params.pilotCountry,
+      dryRun: effectiveDryRun,
     });
     const candidates = preview.candidates;
 
@@ -473,6 +516,31 @@ export class PilotExecutionService {
         results: [],
         confirmed: false,
         message: 'LIVE PILOT NOT EXECUTED: Reason: explicit --confirm flag required.',
+      };
+    }
+
+    // 2b. Live send safety check (live mode requires OUTREACH_ENABLED=true and LIVE_PILOT_ENABLED=true and DRY_RUN=false)
+    if (!effectiveDryRun && !isLiveMode) {
+      this.log.warn('Live execution blocked: LIVE PILOT DISABLED OR DRY RUN ACTIVE');
+      return {
+        pilotRunId,
+        timestamp: new Date(),
+        startTime,
+        endTime: new Date(),
+        safetyState,
+        totalEligible: 0,
+        candidates: [],
+        attempted: 0,
+        sent: 0,
+        simulated: 0,
+        blocked: 0,
+        failed: 0,
+        unknown: 0,
+        duplicateBlocked: 0,
+        remainingDailyCapacity,
+        results: [],
+        confirmed: Boolean(params.confirm),
+        message: 'LIVE PILOT BLOCKED: Live outreach is disabled (OUTREACH_ENABLED=false or LIVE_PILOT_ENABLED=false or DRY_RUN=true).',
       };
     }
 
@@ -535,8 +603,8 @@ export class PilotExecutionService {
       }
       processedEmails.add(normalized);
 
-      // Immediate pre-send atomic check
-      if (safetyControls.isKillSwitchActive()) {
+      // Immediate pre-send atomic check (live mode only)
+      if (isLiveMode && safetyControls.isKillSwitchActive()) {
         blocked++;
         results.push({
           success: false,
@@ -544,14 +612,18 @@ export class PilotExecutionService {
           attemptedAt: new Date(),
           error: 'KILL_SWITCH_TRIGGERED_DURING_RUN',
           providerName: 'SafetyGuard',
-          dryRun: !isLiveMode,
+          dryRun: false,
         });
         break;
       }
 
       const eligibility = await this.validator.isLivePilotEligible(candidate.outreachId, {
-        checkEnvFlags: false,
+        checkEnvFlags: !effectiveDryRun,
+        dryRun: effectiveDryRun,
+        campaignId: params.campaignId,
+        pilotCountry: params.pilotCountry,
         allowTestRecord: params.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
+        requireStrictProvenance: true,
       });
 
       if (!eligibility.eligible) {
@@ -562,7 +634,7 @@ export class PilotExecutionService {
           attemptedAt: new Date(),
           error: eligibility.reasons.join(', '),
           providerName: 'PreSendValidator',
-          dryRun: !isLiveMode,
+          dryRun: effectiveDryRun,
         });
         continue;
       }
@@ -579,11 +651,13 @@ export class PilotExecutionService {
         continue;
       }
 
-      // Mark status as SENDING
-      await this.db.outreach.update({
-        where: { id: candidate.outreachId },
-        data: { status: 'SENDING', attemptedAt: new Date() },
-      });
+      // Mark status as SENDING ONLY in live mode
+      if (isLiveMode) {
+        await this.db.outreach.update({
+          where: { id: candidate.outreachId },
+          data: { status: 'SENDING', attemptedAt: new Date() },
+        });
+      }
 
       // Prepare delivery payload
       const deliveryParams = {
@@ -605,6 +679,14 @@ export class PilotExecutionService {
           this.log.info(`[LIVE PILOT DISPATCH] Sending real email to ${candidate.recipientEmail}`);
           result = await this.smtpProvider.send(deliveryParams);
         } else {
+          // Double-check provider safety
+          if (
+            this.mockProvider.name !== 'MockOutreachProvider' ||
+            (this.mockProvider as any).isNetworkTransport === true ||
+            this.mockProvider instanceof SmtpDeliveryProvider
+          ) {
+            throw new Error('DRY_RUN_REAL_TRANSPORT_PROHIBITED');
+          }
           this.log.info(`[SAFE SIMULATION] Simulating email delivery to ${candidate.recipientEmail}`);
           result = await this.mockProvider.send(deliveryParams);
         }

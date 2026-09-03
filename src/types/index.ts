@@ -690,6 +690,7 @@ export interface DeliveryResult {
 
 export interface OutreachDeliveryProvider {
   readonly name: string;
+  readonly isNetworkTransport?: boolean;
   isAvailable(): Promise<boolean>;
   send(params: DeliveryParams): Promise<DeliveryResult>;
   getCapabilities(): { supportsHtml: boolean; supportsAttachments: boolean };

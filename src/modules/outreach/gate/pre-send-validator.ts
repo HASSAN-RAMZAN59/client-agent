@@ -28,6 +28,7 @@ export interface LivePilotEligibilityOptions {
   enforceTestCheck?: boolean;
   pilotCountry?: string;
   requireStrictProvenance?: boolean;
+  dryRun?: boolean;
 }
 
 export interface LivePilotEligibilityResult extends PreSendValidationResult {
@@ -80,16 +81,16 @@ export class PreSendValidator {
     const reasons = [...baseResult.reasons];
 
     if (options.checkEnvFlags) {
-      if (!config.LIVE_PILOT_ENABLED) {
+      if (!config.LIVE_PILOT_ENABLED && !options.dryRun) {
         reasons.push('PILOT_DISABLED');
       }
-      if (!config.OUTREACH_ENABLED) {
+      if (!config.OUTREACH_ENABLED && !options.dryRun) {
         reasons.push('OUTREACH_DISABLED');
       }
-      if (config.DRY_RUN && options.strictLiveMode) {
+      if (config.DRY_RUN && options.strictLiveMode && !options.dryRun) {
         reasons.push('DRY_RUN_ACTIVE');
       }
-      if (safetyControls.isKillSwitchActive()) {
+      if (safetyControls.isKillSwitchActive() && !options.dryRun) {
         if (!reasons.includes('KILL_SWITCH_ACTIVE')) {
           reasons.push('KILL_SWITCH_ACTIVE');
         }
@@ -225,9 +226,9 @@ export class PreSendValidator {
       reasons.push('INVALID_CHANNEL');
     }
 
-    // 2. Kill Switch
+    // 2. Kill Switch (enforced for real live dispatch; safe mock simulation executes when dryRun === true)
     const killSwitchActive = safetyControls.isKillSwitchActive();
-    if (killSwitchActive) {
+    if (killSwitchActive && !options.dryRun) {
       reasons.push('KILL_SWITCH_ACTIVE');
     }
 

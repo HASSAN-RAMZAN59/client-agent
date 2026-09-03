@@ -7,6 +7,7 @@ import { logger } from '../../../utils/logger.js';
 
 export class MockOutreachProvider implements OutreachDeliveryProvider {
   public readonly name = 'MockOutreachProvider';
+  public readonly isNetworkTransport = false;
   private log = logger.child('MockOutreachProvider');
   private simulateFailure = false;
   private simulateRateLimit = false;

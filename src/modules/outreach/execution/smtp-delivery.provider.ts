@@ -9,6 +9,7 @@ import { logger } from '../../../utils/logger.js';
 
 export class SmtpDeliveryProvider implements OutreachDeliveryProvider {
   public readonly name = 'SmtpDeliveryProvider';
+  public readonly isNetworkTransport = true;
   private log = logger.child('SmtpDeliveryProvider');
 
   public async isAvailable(): Promise<boolean> {
