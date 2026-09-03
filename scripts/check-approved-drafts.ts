@@ -19,6 +19,9 @@ async function main() {
     approvedAt: d1?.approvedAt,
     variant: d1?.variant,
     contact: d1?.primaryContactValue,
+    subject: d1?.finalSubject || d1?.subject,
+    body: d1?.finalBody || d1?.body,
+    contentHash: d1?.contentHash,
   });
 
   console.log('Draft 2 (DDS):', {
@@ -29,6 +32,9 @@ async function main() {
     approvedAt: d2?.approvedAt,
     variant: d2?.variant,
     contact: d2?.primaryContactValue,
+    subject: d2?.finalSubject || d2?.subject,
+    body: d2?.finalBody || d2?.body,
+    contentHash: d2?.contentHash,
   });
 
   await disconnectDatabase();

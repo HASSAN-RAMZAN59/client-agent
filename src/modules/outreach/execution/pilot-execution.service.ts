@@ -10,6 +10,7 @@ import { createLogger } from '../../../utils/logger.js';
 import { normalizeEmail } from '../../discovery/normalizer.js';
 import { DeliveryResult } from '../../../types/index.js';
 import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email-validator.js';
+import { ContentHasher } from '../../personalization/hardening/content-hasher.js';
 
 export interface PilotExecutionParams {
   limit?: number;
@@ -20,6 +21,7 @@ export interface PilotExecutionParams {
   allowTestRecord?: boolean;
   includeTest?: boolean;
   pilotCountry?: string;
+  live?: boolean;
 }
 
 export interface PilotCandidateSummary {
@@ -400,13 +402,6 @@ export class PilotExecutionService {
     const pilotRunId = params.pilotRunId || `run_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const policy = safetyControls.getPolicy();
 
-    // Enforce hard server-side limits: CLI parameter cannot exceed hard cap (3)
-    const effectiveLimit = Math.min(
-      params.limit || config.LIVE_PILOT_MAX_SENDS_PER_RUN,
-      config.LIVE_PILOT_MAX_SENDS_PER_RUN,
-      3
-    );
-
     const isExplicitDryRun = Boolean(params.dryRun);
     const effectiveDryRun = isExplicitDryRun && (Boolean(params.dryRun) || policy.isDryRun);
     const isLiveMode =
@@ -414,6 +409,16 @@ export class PilotExecutionService {
       config.OUTREACH_ENABLED &&
       config.LIVE_PILOT_ENABLED &&
       !policy.outreachKillSwitch;
+
+    // Enforce hard server-side limits:
+    // For FIRST REAL PILOT, server-side guard strictly caps live sends to exactly 1
+    // Even if CLI requests --limit 2, --limit 3, --limit 100
+    const maxAllowedLimit = isLiveMode ? 1 : 3;
+    const effectiveLimit = Math.min(
+      params.limit || (isLiveMode ? 1 : config.LIVE_PILOT_MAX_SENDS_PER_RUN),
+      isLiveMode ? 1 : config.LIVE_PILOT_MAX_SENDS_PER_RUN,
+      maxAllowedLimit
+    );
 
     const sentToday = await this.validator.getTodaySentCount(params.campaignId);
     let remainingDailyCapacity = Math.max(0, config.LIVE_PILOT_MAX_SENDS_PER_DAY - sentToday);
@@ -544,6 +549,31 @@ export class PilotExecutionService {
       };
     }
 
+    // 2c. Explicit --live confirmation flag required for live SMTP dispatch
+    if (isLiveMode && !params.live) {
+      this.log.warn('Live execution blocked: Reason: explicit --live flag required for live SMTP transmission.');
+      return {
+        pilotRunId,
+        timestamp: new Date(),
+        startTime,
+        endTime: new Date(),
+        safetyState,
+        totalEligible: 0,
+        candidates: [],
+        attempted: 0,
+        sent: 0,
+        simulated: 0,
+        blocked: 0,
+        failed: 0,
+        unknown: 0,
+        duplicateBlocked: 0,
+        remainingDailyCapacity,
+        results: [],
+        confirmed: Boolean(params.confirm),
+        message: 'LIVE_FLAG_REQUIRED: Explicit --live flag required for live SMTP transmission.',
+      };
+    }
+
     // 3. Daily capacity check (for live mode)
     if (isLiveMode && remainingDailyCapacity <= 0) {
       this.log.warn('Execution blocked: DAILY PILOT SEND LIMIT REACHED (3/3 sends completed today)');
@@ -651,6 +681,25 @@ export class PilotExecutionService {
         continue;
       }
 
+      // Snapshot Integrity Guard: Verify approved content has not mutated
+      if (outreachRecord.contentHash) {
+        const checkSubject = outreachRecord.finalSubject || outreachRecord.subject || '';
+        const checkBody = outreachRecord.finalBody || outreachRecord.body || '';
+        const checkHash = ContentHasher.hashDraft(checkSubject, checkBody);
+        if (checkHash !== outreachRecord.contentHash) {
+          blocked++;
+          results.push({
+            success: false,
+            status: 'FAILED',
+            attemptedAt: new Date(),
+            error: 'CONTENT_CHANGED_AFTER_APPROVAL',
+            providerName: 'ContentIntegrityGuard',
+            dryRun: !isLiveMode,
+          });
+          continue;
+        }
+      }
+
       // Mark status as SENDING ONLY in live mode
       if (isLiveMode) {
         await this.db.outreach.update({
@@ -747,6 +796,13 @@ export class PilotExecutionService {
             },
           });
         }
+      }
+
+      // In live mode, first pilot strictly halts after 1 send attempt (success or failure)
+      // Guarantees zero automatic fallback to candidate #2 and zero automatic retries
+      if (isLiveMode) {
+        this.log.info(`[FIRST LIVE PILOT] Single dispatch completed (Result: ${result.status}). Halting execution.`);
+        break;
       }
     }
 

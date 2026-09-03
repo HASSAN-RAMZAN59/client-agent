@@ -7,6 +7,7 @@ import { config } from '../../../config/env.js';
 import { PreSendValidationResult } from '../../../types/index.js';
 import { createLogger } from '../../../utils/logger.js';
 import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email-validator.js';
+import { ContentHasher } from '../../personalization/hardening/content-hasher.js';
 
 const PROHIBITED_FEAR_PATTERNS = [
   /losing\s+(revenue|money|thousands|millions)/i,
@@ -232,12 +233,19 @@ export class PreSendValidator {
       reasons.push('KILL_SWITCH_ACTIVE');
     }
 
-    // 3. Human Approval Check
+    // 3. Human Approval & Content Immutability Check
     const hasApproval =
       Boolean(outreach.approvedAt) &&
       ['APPROVED', 'EDITED_AND_APPROVED', 'READY_TO_SEND'].includes(outreach.status);
     if (!hasApproval) {
       reasons.push('NOT_HUMAN_APPROVED', 'HUMAN_APPROVAL_REQUIRED');
+    } else if (outreach.contentHash) {
+      const currentSubject = outreach.finalSubject || outreach.subject || '';
+      const currentBody = outreach.finalBody || outreach.body || '';
+      const currentHash = ContentHasher.hashDraft(currentSubject, currentBody);
+      if (currentHash !== outreach.contentHash) {
+        reasons.push('CONTENT_CHANGED_AFTER_APPROVAL');
+      }
     }
 
     // 4. Business Identity Check
@@ -476,10 +484,12 @@ export class PreSendValidator {
     // 11. US Commercial Email Compliance Gate (Postal Address & Opt-out)
     const isUSOutreach = !business?.country || ['US', 'USA', 'UNITED STATES'].includes(business.country.toUpperCase().trim());
     if (isEmailChannel && isUSOutreach) {
-      // Postal Address Requirement
+      // Postal Address Requirement (US CAN-SPAM requires valid physical postal address in message)
       const postalAddress = config.SENDER_POSTAL_ADDRESS ? config.SENDER_POSTAL_ADDRESS.trim() : '';
-      if (!postalAddress) {
+      if (!postalAddress || postalAddress.length < 5 || /^(todo|changeme|n\/a|none|placeholder)/i.test(postalAddress)) {
         reasons.push('SENDER_POSTAL_ADDRESS_REQUIRED');
+      } else if (!body.toLowerCase().includes(postalAddress.toLowerCase())) {
+        reasons.push('SENDER_POSTAL_ADDRESS_MISSING_FROM_BODY');
       }
 
       // Opt-out Footer Requirement

@@ -2004,6 +2004,7 @@ program
   .option('--campaign-id <id>', 'Target specific campaign ID')
   .option('--campaign <id>', 'Target specific campaign ID (alias)')
   .option('--country <code>', 'Pilot country code (default: US)', 'US')
+  .option('--live', 'Explicit acknowledgement required for live SMTP dispatch', false)
   .action(async (options) => {
     try {
       const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
@@ -2013,6 +2014,7 @@ program
         dryRun: options.dryRun,
         campaignId: options.campaignId || options.campaign,
         pilotCountry: options.country || 'US',
+        live: options.live,
       });
 
       console.log('\n======================================================================');
