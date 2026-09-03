@@ -55,6 +55,10 @@ export interface PilotCandidateSummary {
   isCooldownActive: boolean;
   hasHumanApproval: boolean;
   provenanceWarning?: string;
+  smtpConfigured: string;
+  legalCompliance: string;
+  providerPolicy: string;
+  technicalReadiness: string;
 }
 
 export interface PilotPreviewReport {
@@ -294,6 +298,7 @@ export class PilotExecutionService {
         campaignNiche: targetCampaign?.niche,
         allowTestRecord: options?.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
         requireStrictProvenance: true,
+        provider: this.smtpProvider,
       });
 
       // Determine separate quality vs send state
@@ -307,22 +312,52 @@ export class PilotExecutionService {
             'DAILY_LIMIT_REACHED',
             'NOT_HUMAN_APPROVED',
             'HUMAN_APPROVAL_REQUIRED',
+            'OUTBOUND_PROVIDER_POLICY_UNSUPPORTED',
+            'PROVIDER_POLICY_REVIEW_REQUIRED',
           ].includes(r)
       );
       const candidateQuality = qualityReasons.length === 0 ? 'VALID' : 'INVALID';
 
-      // Check live env flags separately for send state
+      // Provider Policy & Technical Readiness Evaluation
+      const smtpConfigured = Boolean(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASSWORD) ? 'YES' : 'NO';
+      const legalCompliance = eligibility.details.legalComplianceValid !== false ? 'READY' : 'NON_COMPLIANT';
+      const providerPolicyResult = typeof this.smtpProvider?.getProviderPolicyStatus === 'function'
+        ? this.smtpProvider.getProviderPolicyStatus({ outreachType: 'COLD_COMMERCIAL' })
+        : { status: 'PERMITTED' as const };
+      const providerPolicy = providerPolicyResult.status === 'PERMITTED' ? 'PERMITTED' : 'BLOCKED';
+      const technicalReadiness =
+        candidateQuality === 'VALID' && smtpConfigured === 'YES' && legalCompliance === 'READY'
+          ? 'TECHNICALLY READY'
+          : 'INCOMPLETE';
+
+      // Check live env flags and provider policy for send state
       const envBlockers: string[] = [];
       if (!config.LIVE_PILOT_ENABLED) envBlockers.push('PILOT_DISABLED');
       if (!config.OUTREACH_ENABLED) envBlockers.push('OUTREACH_DISABLED');
       if (config.DRY_RUN) envBlockers.push('DRY_RUN_ACTIVE');
       if (safetyControls.isKillSwitchActive()) envBlockers.push('KILL_SWITCH_ACTIVE');
+      if (providerPolicy === 'BLOCKED') envBlockers.push(providerPolicyResult.reasonCode || 'OUTBOUND_PROVIDER_POLICY_UNSUPPORTED');
+
       const liveSendState = envBlockers.length === 0 ? 'ENABLED' : 'BLOCKED';
 
-      if (eligibility.eligible) {
+      const isCandidateEligible = isDryRunPreview
+        ? eligibility.eligible
+        : eligibility.eligible && providerPolicy === 'PERMITTED';
+
+      if (isCandidateEligible) {
         eligibleCount++;
       } else {
         blockedCount++;
+      }
+
+      let blockingReasonText = eligibility.reasons.length > 0 ? eligibility.reasons.join(', ') : undefined;
+      if (!isDryRunPreview && providerPolicy === 'BLOCKED') {
+        const policyReason = providerPolicyResult.reasonCode || 'OUTBOUND_PROVIDER_POLICY_UNSUPPORTED';
+        if (!blockingReasonText) {
+          blockingReasonText = policyReason;
+        } else if (!blockingReasonText.includes(policyReason)) {
+          blockingReasonText = `${blockingReasonText}, ${policyReason}`;
+        }
       }
 
       const targetCountryNorm = normalizeCountryCode(pilotCountry || targetCampaign?.country || 'US');
@@ -357,14 +392,18 @@ export class PilotExecutionService {
         leadClass: l?.classification || 'WARM',
         salesAngle: salesAngleText,
         approvalStatus: o.approvalStatus || (o.approvedAt ? 'APPROVED' : 'REVIEW_REQUIRED'),
-        eligible: eligibility.eligible,
-        blockingReason: eligibility.reasons.length > 0 ? eligibility.reasons.join(', ') : undefined,
+        eligible: isCandidateEligible,
+        blockingReason: blockingReasonText,
         isSuppressed: eligibility.details.isSuppressed,
         isCooldownActive: eligibility.details.isCooldownActive,
         hasHumanApproval: eligibility.details.hasHumanApproval,
         candidateQuality,
         liveSendState,
         provenanceWarning,
+        smtpConfigured,
+        legalCompliance,
+        providerPolicy,
+        technicalReadiness,
       });
     }
 
@@ -599,6 +638,44 @@ export class PilotExecutionService {
       };
     }
 
+    // 4. Outbound Provider Policy Gate (Requirement 2, 4, 5)
+    if (isLiveMode) {
+      const providerPolicy = typeof this.smtpProvider?.getProviderPolicyStatus === 'function'
+        ? this.smtpProvider.getProviderPolicyStatus({ outreachType: 'COLD_COMMERCIAL' })
+        : { status: 'PERMITTED' as const };
+      if (providerPolicy.status !== 'PERMITTED') {
+        const reasonCode = providerPolicy.reasonCode || 'OUTBOUND_PROVIDER_POLICY_UNSUPPORTED';
+        this.log.warn(`Live execution blocked by provider policy: ${reasonCode}`);
+        return {
+          pilotRunId,
+          timestamp: new Date(),
+          startTime,
+          endTime: new Date(),
+          safetyState,
+          totalEligible: 0,
+          candidates,
+          attempted: 0,
+          sent: 0,
+          simulated: 0,
+          blocked: candidates.length,
+          failed: 0,
+          unknown: 0,
+          duplicateBlocked: 0,
+          remainingDailyCapacity,
+          results: candidates.map((c) => ({
+            success: false,
+            status: 'FAILED' as const,
+            attemptedAt: new Date(),
+            error: reasonCode,
+            providerName: this.smtpProvider.name,
+            dryRun: false,
+          })),
+          confirmed: Boolean(params.confirm),
+          message: `LIVE PILOT BLOCKED BY PROVIDER POLICY: ${reasonCode} — Personal Gmail (@gmail.com) SMTP cannot be used for unsolicited cold commercial outreach.`,
+        };
+      }
+    }
+
     let sent = 0;
     let simulated = 0;
     let blocked = 0;
@@ -654,6 +731,7 @@ export class PilotExecutionService {
         pilotCountry: params.pilotCountry,
         allowTestRecord: params.allowTestRecord ?? (process.env.NODE_ENV === 'test'),
         requireStrictProvenance: true,
+        provider: this.smtpProvider,
       });
 
       if (!eligibility.eligible) {

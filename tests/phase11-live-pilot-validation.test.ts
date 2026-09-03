@@ -265,6 +265,7 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
   describe('3. SMTP Delivery, Failures & Audit Trail', () => {
     it('17. successful SMTP delivery updates outreach record to SENT with message ID', async () => {
       const mockSmtp = new SmtpDeliveryProvider();
+      vi.spyOn(mockSmtp, 'getProviderPolicyStatus').mockReturnValue({ status: 'PERMITTED' });
       vi.spyOn(mockSmtp, 'send').mockResolvedValue({
         success: true,
         status: 'SENT',
@@ -305,6 +306,7 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
 
     it('18. permanent SMTP failure updates outreach record to FAILED without automatic retry', async () => {
       const mockSmtp = new SmtpDeliveryProvider();
+      vi.spyOn(mockSmtp, 'getProviderPolicyStatus').mockReturnValue({ status: 'PERMITTED' });
       vi.spyOn(mockSmtp, 'send').mockResolvedValue({
         success: false,
         status: 'FAILED',
@@ -343,6 +345,7 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
 
     it('19. temporary SMTP failure records failure without infinite retry loop', async () => {
       const mockSmtp = new SmtpDeliveryProvider();
+      vi.spyOn(mockSmtp, 'getProviderPolicyStatus').mockReturnValue({ status: 'PERMITTED' });
       vi.spyOn(mockSmtp, 'send').mockResolvedValue({
         success: false,
         status: 'FAILED',
@@ -377,6 +380,7 @@ describe('Phase 11: Controlled Live Pilot Validation & Real-World Delivery Verif
 
     it('20. unknown delivery result requires manual review without blind resending', async () => {
       const mockSmtp = new SmtpDeliveryProvider();
+      vi.spyOn(mockSmtp, 'getProviderPolicyStatus').mockReturnValue({ status: 'PERMITTED' });
       vi.spyOn(mockSmtp, 'send').mockRejectedValue(new Error('Connection unexpectedly dropped during SMTP DATA'));
 
       const executor = new PilotExecutionService(db, validator, mockSmtp);

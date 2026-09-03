@@ -4,10 +4,11 @@ import { SuppressionRepository } from '../../../database/repositories/suppressio
 import { OutreachRepository } from '../../../database/repositories/outreach.repository.js';
 import { safetyControls } from '../../../config/safety.js';
 import { config } from '../../../config/env.js';
-import { PreSendValidationResult } from '../../../types/index.js';
+import { PreSendValidationResult, OutreachDeliveryProvider } from '../../../types/index.js';
 import { createLogger } from '../../../utils/logger.js';
 import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email-validator.js';
 import { ContentHasher } from '../../personalization/hardening/content-hasher.js';
+import { SmtpDeliveryProvider } from '../execution/smtp-delivery.provider.js';
 
 const PROHIBITED_FEAR_PATTERNS = [
   /losing\s+(revenue|money|thousands|millions)/i,
@@ -30,6 +31,9 @@ export interface LivePilotEligibilityOptions {
   pilotCountry?: string;
   requireStrictProvenance?: boolean;
   dryRun?: boolean;
+  checkProviderPolicy?: boolean;
+  provider?: OutreachDeliveryProvider;
+  outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL';
 }
 
 export interface LivePilotEligibilityResult extends PreSendValidationResult {
@@ -103,6 +107,21 @@ export class PreSendValidator {
       const sentToday = await this.getTodaySentCount(options.campaignId);
       if (sentToday >= config.LIVE_PILOT_MAX_SENDS_PER_DAY) {
         reasons.push('DAILY_LIMIT_REACHED');
+      }
+    }
+
+    // Provider Policy Gate (Requirement 5: Before live commercial outreach require BOTH LEGAL_COMPLIANCE_VALID and PROVIDER_POLICY_VALID)
+    const checkProvider = options.checkProviderPolicy || (Boolean(options.checkEnvFlags || options.strictLiveMode) && !options.dryRun);
+    if (checkProvider && !options.dryRun) {
+      const provider = options.provider || new SmtpDeliveryProvider();
+      const policy = provider.getProviderPolicyStatus({
+        outreachType: options.outreachType || 'COLD_COMMERCIAL',
+      });
+      if (policy.status !== 'PERMITTED') {
+        const reason = policy.reasonCode || 'OUTBOUND_PROVIDER_POLICY_UNSUPPORTED';
+        if (!reasons.includes(reason)) {
+          reasons.push(reason);
+        }
       }
     }
 
@@ -483,13 +502,16 @@ export class PreSendValidator {
 
     // 11. US Commercial Email Compliance Gate (Postal Address & Opt-out)
     const isUSOutreach = !business?.country || ['US', 'USA', 'UNITED STATES'].includes(business.country.toUpperCase().trim());
+    let legalComplianceValid = true;
     if (isEmailChannel && isUSOutreach) {
       // Postal Address Requirement (US CAN-SPAM requires valid physical postal address in message)
       const postalAddress = config.SENDER_POSTAL_ADDRESS ? config.SENDER_POSTAL_ADDRESS.trim() : '';
       if (!postalAddress || postalAddress.length < 5 || /^(todo|changeme|n\/a|none|placeholder)/i.test(postalAddress)) {
         reasons.push('SENDER_POSTAL_ADDRESS_REQUIRED');
+        legalComplianceValid = false;
       } else if (!body.toLowerCase().includes(postalAddress.toLowerCase())) {
         reasons.push('SENDER_POSTAL_ADDRESS_MISSING_FROM_BODY');
+        legalComplianceValid = false;
       }
 
       // Opt-out Footer Requirement
@@ -497,12 +519,30 @@ export class PreSendValidator {
       const hasOptOut = bodyLower.includes('unsubscribe') || bodyLower.includes('opt out') || bodyLower.includes('opt-out');
       if (!hasOptOut) {
         reasons.push('OPT_OUT_FOOTER_REQUIRED');
+        legalComplianceValid = false;
       }
 
       // Commercial Identification Requirement
       const hasCommercialId = bodyLower.includes('web development outreach') || bodyLower.includes('commercial outreach') || bodyLower.includes('outreach');
       if (!hasCommercialId) {
         warnings.push('COMMERCIAL_IDENTIFICATION_MISSING');
+      }
+
+      if (!legalComplianceValid && !reasons.includes('CAN_SPAM_COMPLIANCE_FAILED')) {
+        reasons.push('CAN_SPAM_COMPLIANCE_FAILED');
+      }
+    }
+
+    const provider = options.provider || new SmtpDeliveryProvider();
+    const policyCheck = provider.getProviderPolicyStatus({
+      outreachType: options.outreachType || 'COLD_COMMERCIAL',
+    });
+    const providerPolicyValid = policyCheck.status === 'PERMITTED';
+
+    if (options.checkProviderPolicy && !options.dryRun && !providerPolicyValid) {
+      const reason = policyCheck.reasonCode || 'OUTBOUND_PROVIDER_POLICY_UNSUPPORTED';
+      if (!reasons.includes(reason)) {
+        reasons.push(reason);
       }
     }
 
@@ -523,6 +563,9 @@ export class PreSendValidator {
       senderConfigured: Boolean(config.SMTP_FROM_NAME && config.SMTP_FROM_EMAIL),
       pilotLimitOk: true,
       killSwitchActive,
+      legalComplianceValid,
+      providerPolicyValid,
+      providerPolicyStatus: policyCheck.status,
     };
 
     if (!allowed) {
@@ -657,6 +700,9 @@ export class PreSendValidator {
       senderConfigured: passed,
       pilotLimitOk: passed,
       killSwitchActive: !passed,
+      legalComplianceValid: passed,
+      providerPolicyValid: passed,
+      providerPolicyStatus: (passed ? 'PERMITTED' : 'UNSUPPORTED') as import('../../../types/index.js').ProviderPolicyStatus,
     };
   }
 }

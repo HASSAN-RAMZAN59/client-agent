@@ -1914,10 +1914,16 @@ program
         { pilotCountry }
       );
 
+      const { SmtpDeliveryProvider } = await import('../modules/outreach/execution/smtp-delivery.provider.js');
+      const smtpProv = new SmtpDeliveryProvider();
+      const providerSettings = smtpProv.getSettingsSummary();
+
       console.log('\n========================================================================================================');
       console.log('                                  CONTROLLED LIVE PILOT PREVIEW');
       console.log('========================================================================================================');
       console.log(`  Country: ${pilotCountry}  |  Campaign: ${campaignId || 'ALL'}  |  Limit: ${parseInt(options.limit, 10) || 3}`);
+      console.log(`  Provider: ${smtpProv.name} (${providerSettings.providerType})  |  Configured: ${providerSettings.configured}  |  Cold Outreach OK: ${providerSettings.coldCommercialOutreachEligible}`);
+      console.log(`  Provider Policy: ${providerSettings.providerPolicyStatus}`);
       console.log('========================================================================================================\n');
 
       if (preview.candidates.length === 0) {
@@ -1957,7 +1963,15 @@ program
         );
 
         console.log(`\n  --- Candidate #${i + 1} Record Audit ---`);
-        console.log(`  Business:               ${c.businessName}`);
+        console.log(`  Candidate:              ${c.businessName}`);
+        console.log(`  Approval:               ${c.approvalStatus}`);
+        console.log(`  Candidate Quality:      ${c.candidateQuality}`);
+        console.log(`  SMTP Configured:        ${c.smtpConfigured}`);
+        console.log(`  Legal Compliance:       ${c.legalCompliance}`);
+        console.log(`  Provider Policy:        ${c.providerPolicy}`);
+        console.log(`  Technical Readiness:    ${c.technicalReadiness}`);
+        console.log(`  Live Send State:        ${c.liveSendState}`);
+        console.log(`  Reason:                 ${c.blockingReason || 'None'}`);
         console.log(`  City:                   ${c.city || 'Dallas'}`);
         console.log(`  State:                  ${c.state || 'TX'}`);
         console.log(`  Country:                ${c.country || 'US'}`);
@@ -1972,9 +1986,6 @@ program
         console.log(`  Verification Timestamp: ${c.verificationTimestamp || 'N/A'}`);
         console.log(`  Business Match:         ${c.businessMatch}`);
         console.log(`  Location Match:         ${c.locationMatch}`);
-        console.log(`  Candidate Quality:      ${c.candidateQuality}`);
-        console.log(`  Live Send State:        ${c.liveSendState}`);
-        console.log(`  Blocking Reasons:       ${c.blockingReason || 'None'}`);
         if (c.provenanceWarning) {
           console.log(`  ⚠ Provenance:           ${c.provenanceWarning}`);
         }
@@ -2017,11 +2028,20 @@ program
         live: options.live,
       });
 
+      const { SmtpDeliveryProvider } = await import('../modules/outreach/execution/smtp-delivery.provider.js');
+      const smtpProv = new SmtpDeliveryProvider();
+      const providerSettings = smtpProv.getSettingsSummary();
+
       console.log('\n======================================================================');
       console.log('                 CONTROLLED PILOT EXECUTION REPORT');
       console.log('======================================================================\n');
       console.log(`• Pilot Run ID        : ${report.pilotRunId}`);
       console.log(`• Execution Message   : ${report.message}`);
+      console.log(`• Outbound Provider   : ${smtpProv.name} (${providerSettings.providerType})`);
+      console.log(`• Provider Configured : ${providerSettings.configured}`);
+      console.log(`• Network Capable     : ${providerSettings.networkCapable}`);
+      console.log(`• Cold Outreach OK    : ${providerSettings.coldCommercialOutreachEligible}`);
+      console.log(`• Provider Policy     : ${providerSettings.providerPolicyStatus}`);
       console.log(`• Safety Mode         : DRY_RUN=${report.safetyState.dryRun}, OUTREACH_ENABLED=${report.safetyState.outreachEnabled}, LIVE_PILOT=${report.safetyState.livePilotEnabled}`);
       console.log(`• Kill Switch Active  : ${report.safetyState.killSwitchActive ? 'YES (BLOCKED)' : 'NO'}`);
       console.log(`• Candidates Eligible : ${report.totalEligible}`);

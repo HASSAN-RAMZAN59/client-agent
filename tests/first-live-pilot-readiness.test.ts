@@ -161,7 +161,14 @@ describe('First Live Pilot Readiness & Safety Verification Tests', () => {
         providerName: 'SmtpDeliveryProvider',
         dryRun: false,
       }),
-      getCapabilities: () => ({ supportsHtml: true, supportsAttachments: false }),
+      getCapabilities: () => ({
+        supportsHtml: true,
+        supportsAttachments: false,
+        supportsCommercialColdOutreach: true,
+        providerPolicyStatus: 'PERMITTED' as const,
+        providerType: 'CUSTOM_SMTP' as const,
+      }),
+      getProviderPolicyStatus: () => ({ status: 'PERMITTED' as const }),
     } as unknown as SmtpDeliveryProvider;
 
     const liveService = new PilotExecutionService(db, validator, mockSmtp);
@@ -213,7 +220,14 @@ describe('First Live Pilot Readiness & Safety Verification Tests', () => {
         providerName: 'SmtpDeliveryProvider',
         dryRun: false,
       }),
-      getCapabilities: () => ({ supportsHtml: true, supportsAttachments: false }),
+      getCapabilities: () => ({
+        supportsHtml: true,
+        supportsAttachments: false,
+        supportsCommercialColdOutreach: true,
+        providerPolicyStatus: 'PERMITTED' as const,
+        providerType: 'CUSTOM_SMTP' as const,
+      }),
+      getProviderPolicyStatus: () => ({ status: 'PERMITTED' as const }),
     } as unknown as SmtpDeliveryProvider;
 
     const liveService = new PilotExecutionService(db, validator, mockSmtp);
@@ -486,7 +500,14 @@ describe('First Live Pilot Readiness & Safety Verification Tests', () => {
         providerName: 'SmtpDeliveryProvider',
         dryRun: false,
       }),
-      getCapabilities: () => ({ supportsHtml: true, supportsAttachments: false }),
+      getCapabilities: () => ({
+        supportsHtml: true,
+        supportsAttachments: false,
+        supportsCommercialColdOutreach: true,
+        providerPolicyStatus: 'PERMITTED' as const,
+        providerType: 'CUSTOM_SMTP' as const,
+      }),
+      getProviderPolicyStatus: () => ({ status: 'PERMITTED' as const }),
     } as unknown as SmtpDeliveryProvider;
 
     const liveService = new PilotExecutionService(db, validator, mockSmtp);
@@ -531,7 +552,14 @@ describe('First Live Pilot Readiness & Safety Verification Tests', () => {
       isNetworkTransport: true,
       isAvailable: async () => true,
       send: vi.fn().mockRejectedValue(new Error('Connection timeout to SMTP server')),
-      getCapabilities: () => ({ supportsHtml: true, supportsAttachments: false }),
+      getCapabilities: () => ({
+        supportsHtml: true,
+        supportsAttachments: false,
+        supportsCommercialColdOutreach: true,
+        providerPolicyStatus: 'PERMITTED' as const,
+        providerType: 'CUSTOM_SMTP' as const,
+      }),
+      getProviderPolicyStatus: () => ({ status: 'PERMITTED' as const }),
     } as unknown as SmtpDeliveryProvider;
 
     const liveService = new PilotExecutionService(db, validator, mockFailingSmtp);

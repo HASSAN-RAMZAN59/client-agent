@@ -632,6 +632,9 @@ export interface PreSendValidationResult {
     senderConfigured: boolean;
     pilotLimitOk: boolean;
     killSwitchActive: boolean;
+    legalComplianceValid?: boolean;
+    providerPolicyValid?: boolean;
+    providerPolicyStatus?: ProviderPolicyStatus;
   };
 }
 
@@ -676,6 +679,7 @@ export interface DeliveryParams {
   subject: string;
   body: string;
   dryRun: boolean;
+  outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL';
 }
 
 export interface DeliveryResult {
@@ -688,12 +692,43 @@ export interface DeliveryResult {
   dryRun: boolean;
 }
 
+export type ProviderType =
+  | 'GMAIL_SMTP'
+  | 'CUSTOM_SMTP'
+  | 'SENDGRID'
+  | 'POSTMARK'
+  | 'MAILGUN'
+  | 'RESEND'
+  | 'SES'
+  | 'MOCK'
+  | 'UNKNOWN';
+
+export type ProviderPolicyStatus =
+  | 'PERMITTED'
+  | 'UNSUPPORTED'
+  | 'REVIEW_REQUIRED';
+
+export interface ProviderPolicyCheckResult {
+  status: ProviderPolicyStatus;
+  reasonCode?: string;
+  message?: string;
+}
+
+export interface ProviderCapabilities {
+  supportsHtml: boolean;
+  supportsAttachments: boolean;
+  supportsCommercialColdOutreach: boolean;
+  providerPolicyStatus: ProviderPolicyStatus;
+  providerType: ProviderType;
+}
+
 export interface OutreachDeliveryProvider {
   readonly name: string;
   readonly isNetworkTransport?: boolean;
   isAvailable(): Promise<boolean>;
   send(params: DeliveryParams): Promise<DeliveryResult>;
-  getCapabilities(): { supportsHtml: boolean; supportsAttachments: boolean };
+  getCapabilities(): ProviderCapabilities;
+  getProviderPolicyStatus(context?: { outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL' }): ProviderPolicyCheckResult;
 }
 
 export interface ExecutionBatchSummary {

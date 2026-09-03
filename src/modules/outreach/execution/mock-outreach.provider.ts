@@ -2,6 +2,8 @@ import {
   OutreachDeliveryProvider,
   DeliveryParams,
   DeliveryResult,
+  ProviderCapabilities,
+  ProviderPolicyCheckResult,
 } from '../../../types/index.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -67,10 +69,20 @@ export class MockOutreachProvider implements OutreachDeliveryProvider {
     };
   }
 
-  public getCapabilities() {
+  public getCapabilities(): ProviderCapabilities {
     return {
       supportsHtml: true,
       supportsAttachments: false,
+      supportsCommercialColdOutreach: true,
+      providerPolicyStatus: 'PERMITTED',
+      providerType: 'MOCK',
+    };
+  }
+
+  public getProviderPolicyStatus(_context?: { outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL' }): ProviderPolicyCheckResult {
+    return {
+      status: 'PERMITTED',
+      message: 'Mock simulation provider permits safe local evaluation.',
     };
   }
 }
