@@ -4,7 +4,7 @@ import { SuppressionRepository } from '../../../database/repositories/suppressio
 import { OutreachRepository } from '../../../database/repositories/outreach.repository.js';
 import { safetyControls } from '../../../config/safety.js';
 import { config } from '../../../config/env.js';
-import { PreSendValidationResult, OutreachDeliveryProvider } from '../../../types/index.js';
+import { PreSendValidationResult, OutreachDeliveryProvider, OutreachContextType } from '../../../types/index.js';
 import { createLogger } from '../../../utils/logger.js';
 import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email-validator.js';
 import { ContentHasher } from '../../personalization/hardening/content-hasher.js';
@@ -33,7 +33,7 @@ export interface LivePilotEligibilityOptions {
   dryRun?: boolean;
   checkProviderPolicy?: boolean;
   provider?: OutreachDeliveryProvider;
-  outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL';
+  outreachType?: OutreachContextType;
 }
 
 export interface LivePilotEligibilityResult extends PreSendValidationResult {

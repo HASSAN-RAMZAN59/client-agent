@@ -7,6 +7,7 @@ import {
   ProviderCapabilities,
   ProviderPolicyCheckResult,
   ProviderType,
+  OutreachContextType,
 } from '../../../types/index.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -15,19 +16,28 @@ export class SmtpDeliveryProvider implements OutreachDeliveryProvider {
   public readonly isNetworkTransport = true;
   private log = logger.child('SmtpDeliveryProvider');
 
+  /**
+   * Identifies if the configured account is unambiguously a personal Gmail account (@gmail.com or @googlemail.com).
+   * Note: Merely using smtp.gmail.com with a custom domain does NOT classify as personal Gmail.
+   */
   public isPersonalGmail(): boolean {
-    const host = (config.SMTP_HOST || '').toLowerCase();
     const user = (config.SMTP_USER || '').toLowerCase();
     const from = (config.SMTP_FROM_EMAIL || '').toLowerCase();
 
     return (
-      host.includes('gmail.com') ||
-      host.includes('googlemail.com') ||
       user.endsWith('@gmail.com') ||
       user.endsWith('@googlemail.com') ||
       from.endsWith('@gmail.com') ||
       from.endsWith('@googlemail.com')
     );
+  }
+
+  /**
+   * Identifies if Google SMTP infrastructure (smtp.gmail.com, etc.) is being targeted.
+   */
+  public isGoogleInfrastructure(): boolean {
+    const host = (config.SMTP_HOST || '').toLowerCase();
+    return host.includes('gmail.com') || host.includes('googlemail.com') || host.includes('google.com');
   }
 
   public async isAvailable(): Promise<boolean> {
@@ -39,8 +49,16 @@ export class SmtpDeliveryProvider implements OutreachDeliveryProvider {
   }
 
   public getCapabilities(): ProviderCapabilities {
-    const isGmail = this.isPersonalGmail();
-    const providerType: ProviderType = isGmail ? 'GMAIL_SMTP' : 'CUSTOM_SMTP';
+    const isPersonal = this.isPersonalGmail();
+    const isGoogle = this.isGoogleInfrastructure();
+
+    let providerType: ProviderType = 'CUSTOM_SMTP';
+    if (isPersonal) {
+      providerType = 'GMAIL_SMTP';
+    } else if (isGoogle) {
+      providerType = 'GOOGLE_WORKSPACE';
+    }
+
     const policyResult = this.getProviderPolicyStatus({ outreachType: 'COLD_COMMERCIAL' });
 
     return {
@@ -53,32 +71,62 @@ export class SmtpDeliveryProvider implements OutreachDeliveryProvider {
   }
 
   public getProviderPolicyStatus(context?: {
-    outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL';
+    outreachType?: OutreachContextType;
   }): ProviderPolicyCheckResult {
-    const outreachType = context?.outreachType || 'COLD_COMMERCIAL';
+    const outreachType: OutreachContextType = context?.outreachType || 'COLD_COMMERCIAL';
 
-    if (this.isPersonalGmail()) {
-      if (outreachType === 'COLD_COMMERCIAL') {
+    // 1. Contexts permitted across legitimate email providers:
+    // transactional, relationship, inbound reply responses, user-initiated messages
+    if (
+      outreachType === 'TRANSACTIONAL' ||
+      outreachType === 'RELATIONSHIP' ||
+      outreachType === 'INBOUND_REPLY' ||
+      outreachType === 'USER_INITIATED' ||
+      outreachType === 'REPLY' ||
+      outreachType === 'PERSONAL'
+    ) {
+      return {
+        status: 'PERMITTED',
+        message: `Provider is permitted for non-cold-outreach context: ${outreachType}.`,
+      };
+    }
+
+    // 2. Cold commercial outreach policy evaluation:
+    if (outreachType === 'COLD_COMMERCIAL') {
+      // 2a. Unambiguous Personal Gmail: Prohibited by Google Gmail Program Policies
+      if (this.isPersonalGmail()) {
         return {
           status: 'UNSUPPORTED',
           reasonCode: 'OUTBOUND_PROVIDER_POLICY_UNSUPPORTED',
           message:
-            'Google Gmail Program Policies prohibit using personal Gmail (@gmail.com) SMTP for unsolicited commercial cold outreach.',
-        };
-      } else {
-        return {
-          status: 'PERMITTED',
-          message: `Personal Gmail is permitted for ${outreachType} communication.`,
+            'Google Gmail Program Policies prohibit using personal Gmail (@gmail.com / @googlemail.com) SMTP for unsolicited commercial cold outreach.',
         };
       }
+
+      // 2b. Ambiguous Google infrastructure with custom domain (e.g. Google Workspace): Fail closed
+      if (this.isGoogleInfrastructure()) {
+        return {
+          status: 'REVIEW_REQUIRED',
+          reasonCode: 'PROVIDER_POLICY_REVIEW_REQUIRED',
+          message:
+            'Google Workspace / custom domain on Google SMTP requires explicit provider policy review and compliance verification before cold commercial outreach.',
+        };
+      }
+
+      // 2c. Custom SMTP, SendGrid, Postmark, Mailgun, AWS SES, or any other commercial provider:
+      // FAIL CLOSED: Do not assume permission based solely on provider name.
+      return {
+        status: 'REVIEW_REQUIRED',
+        reasonCode: 'PROVIDER_POLICY_REVIEW_REQUIRED',
+        message:
+          'Provider policy review required: cold commercial outreach capability must be explicitly authorized; provider name alone does not grant permission.',
+      };
     }
 
-    // Default for unknown or unverified custom SMTP providers
     return {
       status: 'REVIEW_REQUIRED',
       reasonCode: 'PROVIDER_POLICY_REVIEW_REQUIRED',
-      message:
-        'Unknown or custom SMTP provider policy requires verification before commercial cold outreach.',
+      message: `Unknown outreach context "${outreachType}" requires explicit review.`,
     };
   }
 

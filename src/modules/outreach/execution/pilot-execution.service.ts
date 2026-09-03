@@ -537,6 +537,7 @@ export class PilotExecutionService {
       pilotCountry: params.pilotCountry,
       dryRun: effectiveDryRun,
     });
+
     const candidates = preview.candidates;
 
     // 2. Explicit --confirm check

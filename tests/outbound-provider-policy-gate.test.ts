@@ -231,6 +231,7 @@ describe('Outbound Provider Policy Gate & Safety Verification Tests', () => {
   it('5. unknown or custom SMTP provider defaults to REVIEW_REQUIRED, not automatically allowed', () => {
     const customSmtp = new SmtpDeliveryProvider();
     vi.spyOn(customSmtp, 'isPersonalGmail').mockReturnValue(false);
+    vi.spyOn(customSmtp, 'isGoogleInfrastructure').mockReturnValue(false);
 
     const caps = customSmtp.getCapabilities();
     expect(caps.providerType).toBe('CUSTOM_SMTP');

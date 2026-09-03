@@ -679,7 +679,7 @@ export interface DeliveryParams {
   subject: string;
   body: string;
   dryRun: boolean;
-  outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL';
+  outreachType?: OutreachContextType;
 }
 
 export interface DeliveryResult {
@@ -692,8 +692,18 @@ export interface DeliveryResult {
   dryRun: boolean;
 }
 
+export type OutreachContextType =
+  | 'COLD_COMMERCIAL'
+  | 'TRANSACTIONAL'
+  | 'RELATIONSHIP'
+  | 'INBOUND_REPLY'
+  | 'USER_INITIATED'
+  | 'REPLY'
+  | 'PERSONAL';
+
 export type ProviderType =
   | 'GMAIL_SMTP'
+  | 'GOOGLE_WORKSPACE'
   | 'CUSTOM_SMTP'
   | 'SENDGRID'
   | 'POSTMARK'
@@ -728,7 +738,7 @@ export interface OutreachDeliveryProvider {
   isAvailable(): Promise<boolean>;
   send(params: DeliveryParams): Promise<DeliveryResult>;
   getCapabilities(): ProviderCapabilities;
-  getProviderPolicyStatus(context?: { outreachType?: 'COLD_COMMERCIAL' | 'TRANSACTIONAL' | 'REPLY' | 'PERSONAL' }): ProviderPolicyCheckResult;
+  getProviderPolicyStatus(context?: { outreachType?: OutreachContextType }): ProviderPolicyCheckResult;
 }
 
 export interface ExecutionBatchSummary {

@@ -1870,8 +1870,8 @@ program
 program
   .command('review-interactive')
   .description('Interactive human review interface for pending outreach drafts')
-  .option('--campaign-id <id>', 'Target specific campaign ID')
-  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('-c, --campaign <id>', 'Target specific campaign ID')
+  .option('--campaign-id <id>', 'Target specific campaign ID (deprecated alias; use --campaign)')
   .option('--country <code>', 'Target country code (e.g. US)')
   .option('-e, --email-only', 'Review verified email candidates only', false)
   .option('--pilot-eligible', 'Enforce strict pilot quality and provenance criteria', false)
@@ -1881,7 +1881,7 @@ program
     try {
       const { interactiveReviewerService } = await import('../modules/outreach/review/interactive-reviewer.service.js');
       await interactiveReviewerService.startInteractiveCli({
-        campaignId: options.campaignId || options.campaign,
+        campaignId: options.campaign || options.campaignId,
         country: options.country,
         emailOnly: Boolean(options.emailOnly),
         pilotEligible: Boolean(options.pilotEligible),
@@ -1900,13 +1900,13 @@ program
   .command('pilot-preview')
   .description('Preview controlled live pilot candidates and pre-send safety validation without sending')
   .option('-l, --limit <number>', 'Number of verified email leads to inspect (Max 3)', '3')
-  .option('--campaign-id <id>', 'Target specific campaign ID')
-  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('-c, --campaign <id>', 'Target specific campaign ID')
+  .option('--campaign-id <id>', 'Target specific campaign ID (deprecated alias; use --campaign)')
   .option('--country <code>', 'Pilot country code (default: US)', 'US')
   .action(async (options) => {
     try {
       const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
-      const campaignId = options.campaignId || options.campaign;
+      const campaignId = options.campaign || options.campaignId;
       const pilotCountry = options.country || 'US';
       const preview = await pilotExecutionService.previewPilot(
         parseInt(options.limit, 10) || 3,
@@ -2012,8 +2012,8 @@ program
   .option('-l, --limit <number>', 'Number of verified email leads to send (Max 3)', '3')
   .option('--confirm', 'Explicit confirmation flag required for pilot execution', false)
   .option('--dry-run', 'Simulate delivery without real email dispatch', false)
-  .option('--campaign-id <id>', 'Target specific campaign ID')
-  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('-c, --campaign <id>', 'Target specific campaign ID')
+  .option('--campaign-id <id>', 'Target specific campaign ID (deprecated alias; use --campaign)')
   .option('--country <code>', 'Pilot country code (default: US)', 'US')
   .option('--live', 'Explicit acknowledgement required for live SMTP dispatch', false)
   .action(async (options) => {
@@ -2023,7 +2023,7 @@ program
         limit: parseInt(options.limit, 10) || 3,
         confirm: options.confirm,
         dryRun: options.dryRun,
-        campaignId: options.campaignId || options.campaign,
+        campaignId: options.campaign || options.campaignId,
         pilotCountry: options.country || 'US',
         live: options.live,
       });
@@ -2163,8 +2163,8 @@ program
   .command('review-queue')
   .description('Display pending human review queue with draft previews and quality gates')
   .option('-l, --limit <number>', 'Number of items to inspect', '10')
-  .option('--campaign-id <id>', 'Target specific campaign ID')
-  .option('--campaign <id>', 'Target specific campaign ID (alias)')
+  .option('-c, --campaign <id>', 'Target specific campaign ID')
+  .option('--campaign-id <id>', 'Target specific campaign ID (deprecated alias; use --campaign)')
   .option('--country <code>', 'Target country code (e.g. US)')
   .option('-e, --email-only', 'Show verified email candidates only', false)
   .option('--pilot-eligible', 'Enforce strict pilot quality and provenance criteria', false)
@@ -2175,7 +2175,7 @@ program
       const items = await queueService.getReviewQueue(
         parseInt(options.limit, 10) || 10,
         {
-          campaignId: options.campaignId || options.campaign,
+          campaignId: options.campaign || options.campaignId,
           country: options.country,
           emailOnly: Boolean(options.emailOnly),
           pilotEligible: Boolean(options.pilotEligible),
