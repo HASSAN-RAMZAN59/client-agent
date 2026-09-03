@@ -242,10 +242,13 @@ export class PreSendValidator {
     // 4. Business Identity Check
     const name = business?.name ? business.name.trim() : '';
     const unsafeIdentityRegexes = [
-      /^(?:dentist|dentists|dentistry|dental|hvac|plumber|plumbing|doctor|lawyer|attorney|roofing|electrician|cleaning)\s+in\s+[a-zA-Z\s,.-]+$/i,
-      /^[a-zA-Z\s,.-]+,\s*(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA)\s+(?:dentists?|dentistry|hvac|plumbers?|doctors?|lawyers?|attorneys?|services)$/i,
-      /^(?:dentist|dentistry|dental|hvac|plumber|doctor|lawyer)\s+near\s+me$/i,
-      /^(?:best|top|affordable|emergency|cheap)\s+(?:dentists?|hvac|plumbers?|doctors?)\s+in\s+[a-zA-Z\s,.-]+$/i,
+      /(?:^|\b)(?:dentist|dentists|dentistry|dental|hvac|plumber|plumbing|doctor|lawyer|attorney|roofing|electrician|cleaning)\s+in\s+[a-zA-Z\s,.-]+/i,
+      /^[a-zA-Z\s,.-]+,\s*(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA)\s+(?:dentists?|dentistry|hvac|plumbers?|doctors?|lawyers?|attorneys?|services)/i,
+      /(?:dentist|dentistry|dental|hvac|plumber|doctor|lawyer)\s+near\s+me/i,
+      /(?:^|\b)(?:best|top|affordable|emergency|cheap)\s+(?:dentists?|hvac|plumbers?|doctors?)\s+in\s+[a-zA-Z\s,.-]+/i,
+      /^(?:contact\s+us|home|about\s+us|welcome\s+to)\b/i,
+      /\bdentists?\s+near\s+me\b/i,
+      /\bdallas(?:,\s*tx)?\s+dentists?\b/i,
     ];
     const isUnsafeName = unsafeIdentityRegexes.some((rx) => rx.test(name));
 
@@ -303,12 +306,14 @@ export class PreSendValidator {
       );
       const hasVerificationTimestamp = Boolean(matchingContact?.discoveredAt || matchingContact?.createdAt);
 
-      // Check directory/search snippet exclusion: sourceUrl must not be directory/search engine snippet
-      const isDirectorySource = Boolean(
-        matchingContact?.sourceUrl &&
-        /google\.|yelp\.|yellowpages\.|bing\.|bbb\.org|facebook\.|tripadvisor\.|mapquest\./i.test(
-          matchingContact.sourceUrl
-        )
+      // Check directory/search snippet or non-official source exclusion: sourceUrl must belong to official website
+      const isDirectoryOrOsmSource = Boolean(
+        (matchingContact?.sourceUrl &&
+          /google\.|yelp\.|yellowpages\.|bing\.|bbb\.org|facebook\.|tripadvisor\.|mapquest\.|openstreetmap\.org|overpass/i.test(
+            matchingContact.sourceUrl
+          )) ||
+        matchingContact?.source === 'osm_overpass' ||
+        (matchingContact?.sourceType && matchingContact.sourceType !== 'OFFICIAL_WEBSITE')
       );
 
       // Check emailAsFound match if present
@@ -322,7 +327,7 @@ export class PreSendValidator {
         !isStatusVerifiedPublic ||
         !hasValidSourceUrl ||
         !hasVerificationTimestamp ||
-        isDirectorySource ||
+        isDirectoryOrOsmSource ||
         !emailAsFoundMatches
       ) {
         reasons.push('EMAIL_SOURCE_NOT_VERIFIABLE');
@@ -375,7 +380,8 @@ export class PreSendValidator {
           (emailPrefix === city ||
             emailPrefix.startsWith(city + '.') ||
             emailPrefix.startsWith(city + '_') ||
-            emailPrefix.startsWith(city + '-'))
+            emailPrefix.startsWith(city + '-') ||
+            (matchingContact?.sourceUrl && new RegExp(`/(?:locations?|offices?)[-_]${city}\\b`, 'i').test(matchingContact.sourceUrl)))
         ) {
           reasons.push('LOCATION_CONTACT_MISMATCH');
           break;
@@ -436,6 +442,27 @@ export class PreSendValidator {
     ) {
       noProhibitedClaims = false;
       reasons.push('HALLUCINATED_WEBSITE_DEFECT');
+    }
+
+    // 9b. Concrete Audit Evidence Requirement (Rejects undefined audit problems)
+    const hasUndefinedInCopy =
+      body.includes('Problem Detected = undefined') ||
+      body.toLowerCase().includes('problem detected: undefined') ||
+      subject.includes('undefined');
+
+    const hasConcreteAuditIssue = Boolean(
+      (audit?.loadTimeMs && audit.loadTimeMs > 0) ||
+      (audit?.issuesJson && audit.issuesJson !== '[]' && audit.issuesJson !== 'null') ||
+      (audit?.findings && audit.findings !== '[]' && audit.findings !== 'null') ||
+      (audit?.opportunityFlags && audit.opportunityFlags !== '[]' && audit.opportunityFlags !== 'null') ||
+      (audit?.mobileResponsive === false)
+    );
+
+    if (
+      hasUndefinedInCopy ||
+      (body.toLowerCase().includes('website needs modernization') && !hasConcreteAuditIssue)
+    ) {
+      reasons.push('UNDEFINED_AUDIT_PROBLEM');
     }
 
     // 10. Identity & Location Match

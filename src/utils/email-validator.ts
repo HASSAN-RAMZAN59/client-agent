@@ -110,6 +110,11 @@ export function isStrictlyValidEmail(value: string | null | undefined): EmailVal
     return { valid: false, reason: 'HEX_LOCAL_PART' };
   }
 
+  // Reject telemetry / analytics / sentry / crash-reporting tokens
+  if (/sentry|wixpress\.com|telemetry|analytics|crashlytics|bugsnag/i.test(domainPart) || /sentry/i.test(localPart)) {
+    return { valid: false, reason: 'TELEMETRY_TOKEN_EMAIL' };
+  }
+
   // Basic RFC-ish local part character check
   if (!/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(localPart)) {
     return { valid: false, reason: 'INVALID_LOCAL_PART_CHARACTERS' };
