@@ -251,7 +251,7 @@ export class PilotExecutionService {
       const emailCheck = isStrictlyValidEmail(recipient);
       if (!emailCheck.valid) {
         invalidEmailRejected++;
-        this.log.warn(`[pilot-preview] Skipping invalid email contact: ${recipient} (${emailCheck.reason})`);
+        this.log.debug(`[pilot-preview] Skipping invalid email contact: ${recipient} (${emailCheck.reason})`);
         continue;
       }
 
@@ -405,6 +405,10 @@ export class PilotExecutionService {
         providerPolicy,
         technicalReadiness,
       });
+    }
+
+    if (invalidEmailRejected > 0) {
+      this.log.info(`[pilot-preview] Skipped invalid/no-email contacts: ${invalidEmailRejected}`);
     }
 
     const sentToday = await this.validator.getTodaySentCount();

@@ -361,6 +361,7 @@ model Campaign {
   // Relationships
   businesses                Business[]
   campaignBusinesses        CampaignBusiness[]
+  runs                      CampaignRun[]
 
   @@index([status])
   @@index([country, city, niche])
@@ -384,5 +385,63 @@ model CampaignBusiness {
   @@index([campaignId])
   @@index([businessId])
   @@map("campaign_businesses")
+}
+
+// ------------------------------------------------------------------------------
+// 11. CampaignRun Model (Phase 13 Production Hardening & Execution Tracking)
+// ------------------------------------------------------------------------------
+model CampaignRun {
+  id                 String    @id @default(uuid())
+  campaignId         String
+  status             String    @default("CREATED") // CREATED, DISCOVERING, AUDITING, SCORING, CONTACT_DISCOVERY, PERSONALIZING, REVIEW_READY, COMPLETED, PARTIAL_FAILURE, FAILED
+  target             Int       @default(0)
+  discovered         Int       @default(0)
+  normalized         Int       @default(0)
+  websitesFound      Int       @default(0)
+  audited            Int       @default(0)
+  auditFailed        Int       @default(0)
+  hot                Int       @default(0)
+  warm               Int       @default(0)
+  cold               Int       @default(0)
+  emailContactable   Int       @default(0)
+  phoneContactable   Int       @default(0)
+  draftsGenerated    Int       @default(0)
+  reviewRequired     Int       @default(0)
+  approved           Int       @default(0)
+  sent               Int       @default(0)
+  replied            Int       @default(0)
+  positiveReplies    Int       @default(0)
+  errorMessage       String?
+  startedAt          DateTime  @default(now())
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  campaign           Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([status])
+  @@index([startedAt])
+  @@map("campaign_runs")
+}
+
+// ------------------------------------------------------------------------------
+// 12. ActivityLog Model (Phase 13 Operator Audit Events)
+// ------------------------------------------------------------------------------
+model ActivityLog {
+  id         String   @id @default(uuid())
+  timestamp  DateTime @default(now())
+  eventType  String   // CAMPAIGN_CREATED, CAMPAIGN_STARTED, BUSINESS_DISCOVERED, AUDIT_COMPLETED, CONTACT_VERIFIED, DRAFT_CREATED, DRAFT_APPROVED, DRAFT_REJECTED, DRY_RUN_EXECUTED, PROVIDER_POLICY_BLOCKED, SEND_ATTEMPTED, SEND_FAILED, REPLY_CLASSIFIED, RECIPIENT_SUPPRESSED
+  entityType String   // CAMPAIGN, BUSINESS, AUDIT, CONTACT, LEAD, OUTREACH, REPLY, SUPPRESSION
+  entityId   String?
+  actor      String   @default("SYSTEM") // SYSTEM, HUMAN_OPERATOR
+  metadata   String?  // Sanitized JSON string (NEVER contains secrets)
+  createdAt  DateTime @default(now())
+
+  @@index([eventType])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([timestamp])
+  @@map("activity_logs")
 }
 

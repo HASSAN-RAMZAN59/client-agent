@@ -1,126 +1,164 @@
-# Client Acquisition & Lead Generation Automation System (Phase 7 Complete)
+# Zero-Cost Client Acquisition & Lead Generation Automation System
 
-A modular, zero-cost client acquisition and lead generation automation system designed for a freelance web and mobile development business.
-
----
-
-## 1. System Overview
-
-This project provides an automated, locally hosted pipeline to:
-1. **Discover local businesses** (OpenStreetMap Overpass & public organic search).
-2. **Audit website technical & UX quality** (HTTP + Playwright Headless Mobile Browser).
-3. **Score & prioritize sales opportunities** (Multi-Factor Commercial Lead Scoring Model).
-4. **Discover public business contacts** (Official website email, phone, and contact form extraction without SMTP probing).
-5. **AI Personalization & Outreach Content Engine** (3 evidence-backed variants, anti-spam quality guard, zero-cost rule engine).
-6. **Outreach Quality, Compliance & Human Approval Hardening** (Phase 6.5 Gate: suppression, cooldowns, SHA-256 duplicate detection, explicit human approval).
-7. **Controlled Outreach Execution Engine** (Phase 7: atomic draft claiming, final double-check gate, mock & SMTP zero-cost transport, rate-limited sequential delivery).
-8. **Follow-ups and inbound replies** (Phase 8).
+A production-hardened, modular, zero-cost client acquisition and lead generation automation system designed for freelance web and mobile development business operations.
 
 ---
 
-## 2. Hardened Pipeline Lifecycle (Phase 7)
+## 1. System Overview & Architecture
 
-```
-LEAD
-→ PERSONALIZATION DRAFT
-→ QUALITY CHECK (0–100 Score & Quality Bands)
-→ EVIDENCE VALIDATION (Anti-Hallucination)
-→ BUSINESS IDENTITY VALIDATION (Domain match)
-→ SUPPRESSION CHECK (Email, Domain, Phone, Business)
-→ DUPLICATE & CONTENT-HASH CHECK (SHA-256)
-→ COOLDOWN CHECK (Business & Contact cooldown)
-→ HUMAN APPROVAL GATE (Explicit approve-draft)
-→ READY_TO_SEND
-→ FINAL PRE-SEND GATE DOUBLE-CHECK
-→ SAFETY LIMITS (Daily max & per-run batch caps)
-→ ATOMIC CLAIM (READY_TO_SEND -> SENDING)
-→ DELIVERY PROVIDER (Mock / SMTP Transport)
-→ SENT / FAILED
-```
-
-> [!IMPORTANT]
-> **Safety Invariants Maintained in Phase 7**:
-> - **ZERO Real Emails Sent During Testing**: `DRY_RUN=true` and `OUTREACH_ENABLED=false` remain strict defaults.
-> - **Fail Closed Architecture**: If configuration is ambiguous, disabled, or missing, the system refuses to send.
-> - **Central Authoritative Gate**: `OutreachGateService` + `SafetyControls` are evaluated immediately before delivery.
-> - **Atomic Claim Mechanism**: Prevents concurrent race conditions and duplicate delivery attempts.
-> - **Credential Security**: Passwords and auth tokens are never logged, stored in SQLite, or leaked in error messages.
+The system orchestrates an end-to-end, locally hosted pipeline:
+1. **Public Business Discovery**: Multi-market public organic search and OpenStreetMap Overpass discovery.
+2. **Technical & UX Website Auditing**: HTTP status checking combined with Playwright Headless Mobile inspection.
+3. **Multi-Factor Lead Scoring**: 6-factor commercial scoring model prioritizing high-opportunity local businesses into `HOT`, `WARM`, and `COLD` tiers.
+4. **Public Contact Discovery**: Extracts and validates publicly listed emails, phone numbers, and contact forms directly from official websites with provenance tracking.
+5. **AI & Rule-Based Personalization Engine**: Generates 3 evidence-backed outreach variants with anti-hallucination guards.
+6. **Outreach Quality & Compliance Gate**: Enforces CAN-SPAM requirements, postal address insertion, opt-out mechanisms, and explicit human approval.
+7. **Controlled Outreach Delivery**: Sequential delivery with atomic claiming, safety kill switches, and strict transport policy gates.
+8. **Campaign Run State & Activity Audit Logging**: Tracks real progress counters and records operator events.
 
 ---
 
-## 3. Installation & Setup
+## 2. Critical Safety Invariants & Provider Policy
 
-```bash
-# 1. Install dependencies & Playwright Chromium
+> [!CAUTION]
+> **PERSONAL GMAIL COLD COMMERCIAL OUTREACH IS STRICTLY BLOCKED**:
+> - Google Gmail Program Policies strictly prohibit using personal Gmail accounts (`@gmail.com` or `@googlemail.com`) via SMTP for unsolicited commercial cold outreach.
+> - The provider policy gate classifies personal Gmail as `UNSUPPORTED` and refuses to dispatch cold commercial outreach under all circumstances.
+> - `DRY_RUN=true`, `OUTREACH_ENABLED=false`, `LIVE_PILOT_ENABLED=false`, and `OUTREACH_KILL_SWITCH=true` remain authoritative safety defaults.
+> - Zero real emails are sent during development, testing, or dry runs.
+
+---
+
+## 3. Installation & Windows Setup
+
+The project runs natively on **Windows (PowerShell)** and Unix-like environments.
+
+```powershell
+# 1. Install dependencies
 npm install
+
+# 2. Install Playwright Chromium browser binary
 npx playwright install chromium
 
-# 2. Setup environment
+# 3. Setup environment configuration
 cp .env.example .env
 
-# 3. Apply Prisma migrations to SQLite
+# 4. Generate Prisma client
 npm run prisma:generate
-npm run prisma:migrate
 ```
 
 ---
 
-## 4. CLI Commands Reference
+## 4. Environment Variables Reference
 
-| Command | Description | Status |
+| Variable | Description | Safe Default |
 |---|---|---|
-| `npm run cli -- discover` | Discovers businesses via OSM Overpass & public search, checks websites, deduplicates, and stores in SQLite | **Verified** |
-| `npm run cli -- audit` | Performs deep technical & UX website audits on discovered businesses or standalone URLs | **Verified** |
-| `npm run cli -- score` | Calculates Multi-Factor Lead Opportunity Scores and updates prioritized sales leads | **Verified** |
-| `npm run cli -- hot-leads` | Displays only high-priority HOT leads sorted by priority rank and opportunity score | **Verified** |
-| `npm run cli -- contacts` | Discovers public business emails, phones, and contact forms for prioritized leads | **Verified** |
-| `npm run cli -- personalize` | Generates 3 evidence-backed outreach variants and subject lines without sending emails | **Verified** |
-| `npm run cli -- review-drafts` | Displays review dashboard with quality scores, quality bands, evidence, and identity flags | **Verified** |
-| `npm run cli -- review-draft <id>` | Inspects deep intelligence card, quality band, evidence validity, suppression, and gate decision | **Verified** |
-| `npm run cli -- approve-draft <id>` | Human action to approve a specific draft ID and advance to `READY_TO_SEND` | **Verified** |
-| `npm run cli -- reject-draft <id>` | Human action to reject a specific draft and record the reason | **Verified** |
-| `npm run cli -- suppress <target>` | Adds an email, domain, phone, or business to persistent suppression list | **Verified** |
-| `npm run cli -- suppression-list` | Lists all active persistent suppression list entries | **Verified** |
-| `npm run cli -- outreach-status` | Displays gate health, suppression stats, cooldown settings, and safety kill switches | **Verified** |
-| `npm run cli -- send-preview <id>` | Comprehensive pre-send inspection verifying final gate decision and limits | **Phase 7 Implemented** |
-| `npm run cli -- send-status` | Displays real-time daily volume quota telemetry and provider availability | **Phase 7 Implemented** |
-| `npm run cli -- send [--limit] [--dry-run]` | Controlled delivery execution for approved READY_TO_SEND drafts through safety gate | **Phase 7 Implemented** |
-| `npm run cli -- drafts` | Lists stored outreach drafts with personalization scores and quality guard status | **Verified** |
-| `npm run cli -- draft <id>` | Displays full draft body copy, evidence bullets, and subject line options | **Verified** |
-| `npm run cli -- lead <id>` | Displays full intelligence card, score breakdown, and structured sales angle for a specific lead | **Verified** |
-| `npm run cli -- leads` | Lists all prioritized sales leads with enriched primary contacts stored in SQLite | **Verified** |
-| `npm run cli -- status` | Verifies Node version, SQLite connectivity, source budgets, and safety controls | **Verified** |
-| `npm run cli -- stats` | Aggregates pipeline analytics across stored businesses, audits, leads, contacts, and drafts | **Verified** |
+| `DATABASE_URL` | SQLite database connection string | `file:./dev.db` |
+| `NODE_ENV` | Environment profile (`development`, `test`, `production`) | `development` |
+| `LOG_LEVEL` | Logging level (`debug`, `info`, `warn`, `error`) | `info` |
+| `DRY_RUN` | Global simulation mode (disables network dispatch) | `true` |
+| `OUTREACH_ENABLED` | Master outreach permission gate | `false` |
+| `LIVE_PILOT_ENABLED` | Controlled pilot execution permission | `false` |
+| `OUTREACH_KILL_SWITCH` | Emergency kill switch blocking all outbound sends | `true` |
+| `AUTO_FOLLOWUP_ENABLED` | Automated follow-up dispatch flag | `false` |
+| `MAX_ITEMS_PER_RUN` | Maximum businesses processed per discovery run | `10` |
+| `MAX_EMAILS_PER_RUN` | Maximum emails dispatched per batch | `5` |
+| `MAX_EMAILS_PER_DAY` | Maximum emails dispatched per 24 hours | `20` |
+| `SMTP_HOST` | SMTP server host | `smtp.gmail.com` |
+| `SMTP_PORT` | SMTP port | `587` |
+| `SMTP_USER` | SMTP username | `[Configured in .env]` |
+| `SMTP_PASSWORD` | SMTP password / App password | `[Masked/Redacted]` |
+| `SENDER_POSTAL_ADDRESS` | Physical postal address for CAN-SPAM compliance | `[Configured in .env]` |
 
 ---
 
-## 5. Running Controlled Outreach Delivery
+## 5. Safe Startup, Status & Health Inspection
 
-```bash
-# Check real-time quota telemetry & provider status
-npm run cli -- send-status
+```powershell
+# Verify full system health (Playwright, SQLite, SMTP, Safety Mode — ZERO SENDS)
+npm run cli -- health
 
-# Inspect pre-send checks for an approved draft (verifies gate decision & reasons)
-npm run cli -- send-preview <approved-draft-uuid>
+# Display concise operational summary (Counts, campaigns, approved drafts, provider policy)
+npm run cli -- status
 
-# Execute controlled simulated batch delivery (DRY_RUN mode, 0 network emails sent)
-npm run cli -- send --dry-run --limit 5
-
-# Live delivery attempt (fails closed if OUTREACH_ENABLED=false)
-npm run cli -- send --limit 5
+# Run database integrity audit (Foreign keys, orphan records, unique constraints)
+npm run cli -- integrity
 ```
 
 ---
 
-## 6. Testing & Quality Verification
+## 6. Database Backup & Safe Restore
 
-```bash
-# Run unit & integration test suite (125 tests passing across 15 suites)
+The database uses zero-cost local SQLite storage with atomic backup tooling.
+
+```powershell
+# 1. Create a timestamped, SHA-256 verified backup
+npm run db:backup
+# Output: backups/dev-YYYY-MM-DD-HHMMSS.db
+
+# 2. Safely restore from a verified backup (requires explicit confirmation)
+npm run db:restore -- --file backups/dev-2026-09-04-102342.db --confirm RESTORE
+```
+
+> [!NOTE]
+> The restore command automatically takes a safety snapshot of the active database before touching it.
+
+---
+
+## 7. Campaign Lifecycle & Execution States
+
+Campaign runs progress through strictly tracked, non-fabricated states:
+
+```
+CREATED
+  └── DISCOVERING
+        └── AUDITING
+              └── SCORING
+                    └── CONTACT_DISCOVERY
+                          └── PERSONALIZING
+                                └── REVIEW_READY
+                                      └── COMPLETED (or PARTIAL_FAILURE / FAILED)
+```
+
+---
+
+## 8. Controlled Live Pilot Preview (Dry-Run Simulation)
+
+Inspect approved candidates and pre-send safety validation without sending network emails:
+
+```powershell
+# Inspect candidates in dry-run mode (0 network sends)
+npm run cli -- pilot-preview --limit 3
+
+# Chapman Air & Heat and Dallas Dental Specialists are approved, frozen, and ready for review.
+```
+
+---
+
+## 9. Testing & Quality Verification
+
+```powershell
+# Run full Vitest suite (all unit, integration, and safety tests)
 npm test
 
 # Run TypeScript typecheck (0 errors)
 npm run typecheck
 
-# Build production bundle
+# Verify production build compilation
 npm run build
 ```
+
+---
+
+## 10. Phase 12 Conversion Optimization Status
+
+**Status**: `PENDING_REAL_PILOT_DATA`  
+Synthetic dry-run data is never presented as real conversion performance. See [docs/PHASE12_STATUS.md](docs/PHASE12_STATUS.md) for required real-world signal specifications.
+
+---
+
+## 11. Known Operational Limitations
+
+1. **Personal Gmail SMTP**: Cannot be used for outbound cold commercial messaging under Google Gmail Program Policies. A business Google Workspace account with custom domain or dedicated commercial transactional SMTP provider is required for future live outreach.
+2. **SQLite Storage**: Highly efficient for single-operator local pipelines up to hundreds of thousands of leads, but concurrent multi-node write operations require Postgres or MySQL in enterprise deployments.
+3. **Zero Scraping Bypass**: The system strictly respects rate limits, `robots.txt`, and standard HTTP status codes; it does not bypass CAPTCHAs or employ proxy rotation.

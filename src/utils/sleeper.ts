@@ -8,3 +8,6 @@ export async function safeSleep(ms?: number): Promise<void> {
   const clampedDuration = Math.max(100, Math.min(duration, 30000));
   return new Promise((resolve) => setTimeout(resolve, clampedDuration));
 }
+
+export const sleep = safeSleep;
+

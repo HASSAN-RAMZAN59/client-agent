@@ -12,6 +12,12 @@ import { safetyControls } from '../config/safety.js';
 import { disconnectDatabase } from '../database/client.js';
 import { logger } from '../utils/logger.js';
 import { config } from '../config/env.js';
+import { systemStatusService } from '../services/system-status.service.js';
+import { databaseIntegrityService } from '../database/integrity.service.js';
+import { shutdownManager } from '../utils/shutdown.js';
+
+// Ensure shutdown manager is initialized for graceful exit
+shutdownManager.getStatus();
 
 const program = new Command();
 
@@ -21,49 +27,42 @@ program
   .version('0.2.5 (Phase 2 Hardened)');
 
 // ------------------------------------------------------------------------------
-// Status / Health Check Command
+// Status Command (Phase 13 Concise Operational Summary)
 // ------------------------------------------------------------------------------
 program
   .command('status')
-  .alias('health')
-  .description('Verify Node environment, SQLite database connection, config, and safety controls')
+  .description('Show concise operational summary of environment, database, counts, provider policy, and safety')
   .action(async () => {
     try {
+      const summary = await systemStatusService.getStatusSummary();
+
       console.log('\n======================================================');
-      console.log('   SYSTEM HEALTH & ENVIRONMENT STATUS (PHASE 2.5)');
+      console.log('       SYSTEM OPERATIONAL STATUS (PHASE 13)');
       console.log('======================================================\n');
-
-      const health = await HealthService.getStatus();
-
-      console.log(`• Overall Status     : ${health.status.toUpperCase()}`);
-      console.log(`• Application Version: ${health.version}`);
-      console.log(`• Node.js Version    : ${health.nodeVersion}`);
-      console.log(`• Environment        : ${health.environment}`);
-      console.log(`• Database Status    : ${health.database.connected ? 'CONNECTED (SQLite)' : 'DISCONNECTED'}`);
-      if (health.database.latencyMs !== undefined) {
-        console.log(`• Database Latency   : ${health.database.latencyMs}ms`);
+      console.log(`• Environment         : ${summary.environment.toUpperCase()}`);
+      console.log(`• Database            : ${summary.database.status} (${summary.database.provider})`);
+      console.log(`  Path                : ${summary.database.path}`);
+      console.log(`  Size                : ${(summary.database.sizeBytes / (1024 * 1024)).toFixed(2)} MB`);
+      if (summary.database.latencyMs !== undefined) {
+        console.log(`  Latency             : ${summary.database.latencyMs}ms`);
       }
-      if (health.database.error) {
-        console.log(`• Database Error     : ${health.database.error}`);
-      }
-
-      console.log('\n--- Safety Controls & Source Budgets ---');
-      console.log(`• DRY_RUN Mode           : ${health.configuration.dryRun} (Safe simulation mode)`);
-      console.log(`• MAX_ITEMS_PER_RUN      : ${health.configuration.maxItemsPerRun}`);
-      console.log(`• MAX_SOURCE_REQUESTS    : ${health.configuration.maxSourceRequestPerRun}`);
-      console.log(`• REQUEST_DELAY_MS       : ${health.configuration.requestDelayMs}ms`);
-      console.log(`• OSM Source Enabled     : ${health.configuration.discoveryOsmEnabled}`);
-      console.log(`• DDG Search Enabled     : ${health.configuration.discoveryDdgEnabled}`);
-      console.log(`• MAX_EMAILS_PER_RUN     : ${config.MAX_EMAILS_PER_RUN}`);
-      console.log(`• MAX_RETRIES            : ${config.MAX_RETRIES}`);
-      console.log(`• COOLDOWN_MS            : ${config.COOLDOWN_MS}ms\n`);
-
-      if (health.status === 'healthy') {
-        console.log('✔ All system checks passed successfully.\n');
+      console.log(`• Businesses          : ${summary.counts.businesses}`);
+      console.log(`• Campaigns           : ${summary.counts.campaignsActive} Active / ${summary.counts.campaignsTotal} Total`);
+      console.log(`• Leads               : ${summary.counts.leadsTotal} (HOT: ${summary.counts.leadsHot}, WARM: ${summary.counts.leadsWarm}, COLD: ${summary.counts.leadsCold})`);
+      console.log(`• Pending Review      : ${summary.counts.pendingReview}`);
+      console.log(`• Approved            : ${summary.counts.approved}`);
+      console.log(`• Provider            : ${summary.provider.name} (${summary.provider.type}) [Configured: ${summary.provider.configured ? 'YES' : 'NO'}]`);
+      console.log(`• Provider Policy     : ${summary.provider.policyStatus} (Personal Gmail Cold Commercial Outreach: BLOCKED)`);
+      console.log(`• Dry Run             : ${summary.safety.dryRun}`);
+      console.log(`• Kill Switch         : ${summary.safety.killSwitchActive}`);
+      console.log(`• Test-Data Guard     : ${summary.safety.testDataGuard}`);
+      if (summary.lastCampaignRun) {
+        console.log(`• Last Campaign Run   : [${summary.lastCampaignRun.status}] Started: ${summary.lastCampaignRun.startedAt.toISOString()}`);
       } else {
-        console.error('✖ System check identified issues. Review logs above.\n');
-        process.exitCode = 1;
+        console.log(`• Last Campaign Run   : None recorded`);
       }
+      console.log(`• Last Error          : ${summary.lastError || 'None'}\n`);
+      console.log('======================================================\n');
     } catch (err) {
       logger.error('Failed to retrieve system status', err);
       process.exitCode = 1;
@@ -73,13 +72,98 @@ program
   });
 
 // ------------------------------------------------------------------------------
+// Health Check Command (Phase 13 Health Inspection — NO SEND TRIGGERED)
+// ------------------------------------------------------------------------------
+program
+  .command('health')
+  .description('Perform full system health check (Database, Prisma, Playwright, SMTP, Safety Mode — zero sends)')
+  .action(async () => {
+    try {
+      const health = await HealthService.getStatus();
+
+      console.log('\n======================================================');
+      console.log('        SYSTEM HEALTH CHECK (ZERO-SEND)');
+      console.log('======================================================\n');
+      console.log(`• Overall Status     : ${health.status.toUpperCase()}`);
+      console.log(`• Database           : ${health.database.health} (${health.database.accessible ? 'ACCESSIBLE' : 'INACCESSIBLE'}, ${health.database.latencyMs}ms)`);
+      console.log(`• Prisma             : ${health.prisma}`);
+      console.log(`• Discovery Config   : ${health.discoveryConfig}`);
+      console.log(`• Playwright         : ${health.playwright}`);
+      console.log(`• SMTP Config        : ${health.smtpConfig}`);
+      console.log(`• Provider Policy    : ${health.providerPolicy}`);
+      console.log(`• Safety Mode        : DRY_RUN=${health.safetyMode.dryRun}, KILL_SWITCH=${health.safetyMode.killSwitchActive}, OUTREACH=${health.safetyMode.outreachEnabled}`);
+      console.log(`• Test-Data Guard    : ${health.testDataGuard}`);
+      console.log(`• Disk Accessibility : ${health.database.accessible ? 'ACCESSIBLE' : 'INACCESSIBLE'}\n`);
+
+      if (health.status === 'healthy') {
+        console.log('✔ All health checks passed successfully (0 sends performed).\n');
+      } else if (health.status === 'degraded') {
+        console.log('⚠ System is operating in degraded mode. Review details above.\n');
+      } else {
+        console.error('✖ System is unhealthy. Review details above.\n');
+        process.exitCode = 1;
+      }
+    } catch (err) {
+      logger.error('Failed to execute health check', err);
+      process.exitCode = 1;
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+// ------------------------------------------------------------------------------
+// Database Integrity Command (Phase 13 Foreign Key & Uniqueness Verification)
+// ------------------------------------------------------------------------------
+program
+  .command('integrity')
+  .description('Audit SQLite database integrity, foreign keys, orphan records, and uniqueness')
+  .action(async () => {
+    try {
+      const report = await databaseIntegrityService.auditIntegrity();
+      console.log('\n======================================================');
+      console.log('           DATABASE INTEGRITY AUDIT REPORT');
+      console.log('======================================================');
+      console.log(`• Status     : ${report.status}`);
+      console.log(`• Timestamp  : ${report.timestamp}`);
+      console.log('\n--- Record Counts ---');
+      for (const [k, v] of Object.entries(report.recordCounts)) {
+        console.log(`• ${k.padEnd(20)}: ${v}`);
+      }
+      console.log('\n--- Orphan Records ---');
+      for (const [k, v] of Object.entries(report.orphanCounts)) {
+        console.log(`• ${k.padEnd(26)}: ${v}`);
+      }
+      console.log('\n--- Duplicate Records ---');
+      for (const [k, v] of Object.entries(report.duplicateCounts)) {
+        console.log(`• ${k.padEnd(26)}: ${v}`);
+      }
+      if (report.findings.length > 0) {
+        console.log('\n--- Findings ---');
+        for (const f of report.findings) {
+          console.log(`[${f.severity}] ${f.category}: ${f.description}`);
+        }
+      } else {
+        console.log('\n✔ Zero integrity violations found.');
+      }
+      console.log('======================================================\n');
+    } catch (err) {
+      logger.error('Failed to execute integrity audit', err);
+      process.exitCode = 1;
+    } finally {
+      await disconnectDatabase();
+    }
+  });
+
+// ------------------------------------------------------------------------------
 // Discovery Command (Phase 2.5 Hardened Discovery Engine)
 // ------------------------------------------------------------------------------
+import { boundedLimitSchema, countryCodeSchema, sanitizedStringSchema, optionalUuidSchema } from './validators.js';
+
 const discoveryInputSchema = z.object({
-  niche: z.string().min(1, 'Niche is required').default('Dentist'),
-  city: z.string().min(1, 'City is required').default('Dallas'),
-  country: z.string().min(1, 'Country is required').default('USA'),
-  limit: z.coerce.number().int().positive().default(10),
+  niche: sanitizedStringSchema('Niche', 1, 50).default('Dentist'),
+  city: sanitizedStringSchema('City', 1, 50).default('Dallas'),
+  country: countryCodeSchema.default('US'),
+  limit: boundedLimitSchema(10, 100),
   mock: z.boolean().default(false),
 });
 
@@ -1905,11 +1989,30 @@ program
   .option('--country <code>', 'Pilot country code (default: US)', 'US')
   .action(async (options) => {
     try {
+      const parsed = z
+        .object({
+          limit: boundedLimitSchema(3, 10),
+          campaign: optionalUuidSchema,
+          country: countryCodeSchema,
+        })
+        .safeParse({
+          limit: options.limit,
+          campaign: options.campaign || options.campaignId || '',
+          country: options.country || 'US',
+        });
+
+      if (!parsed.success) {
+        console.error('\n✖ Invalid Pilot Preview Arguments:');
+        parsed.error.errors.forEach((e) => console.error(`  - ${e.path.join('.')}: ${e.message}`));
+        process.exitCode = 1;
+        return;
+      }
+
       const { pilotExecutionService } = await import('../modules/outreach/execution/pilot-execution.service.js');
-      const campaignId = options.campaign || options.campaignId;
-      const pilotCountry = options.country || 'US';
+      const campaignId = parsed.data.campaign || undefined;
+      const pilotCountry = parsed.data.country;
       const preview = await pilotExecutionService.previewPilot(
-        parseInt(options.limit, 10) || 3,
+        parsed.data.limit,
         campaignId,
         { pilotCountry }
       );

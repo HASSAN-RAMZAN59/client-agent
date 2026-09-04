@@ -9,13 +9,27 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   error: 40,
 };
 
-const SENSITIVE_PATTERNS = [
+const SENSITIVE_KEY_PATTERNS = [
   /password/i,
   /secret/i,
   /api[_-]?key/i,
   /token/i,
   /auth/i,
   /client[_-]?secret/i,
+  /app[_-]?password/i,
+  /cookie/i,
+  /authorization/i,
+  /bearer/i,
+  /session/i,
+  /credential/i,
+  /private[_-]?key/i,
+];
+
+const SENSITIVE_VALUE_PATTERNS = [
+  /bearer\s+[a-zA-Z0-9_\-\.=:_+/]+/i,
+  /password\s*=\s*['"]?[^\s'";&]+['"]?/i,
+  /token\s*=\s*['"]?[^\s'";&]+['"]?/i,
+  /key\s*=\s*['"]?[^\s'";&]+['"]?/i,
 ];
 
 /**
@@ -25,8 +39,11 @@ export function sanitizeLogData(data: unknown): unknown {
   if (data === null || data === undefined) return data;
 
   if (typeof data === 'string') {
-    // Basic regex masking for obvious key patterns if any
-    return data;
+    let sanitized = data;
+    for (const pattern of SENSITIVE_VALUE_PATTERNS) {
+      sanitized = sanitized.replace(pattern, '***REDACTED***');
+    }
+    return sanitized;
   }
 
   if (Array.isArray(data)) {
@@ -34,12 +51,23 @@ export function sanitizeLogData(data: unknown): unknown {
   }
 
   if (typeof data === 'object') {
+    // If it's an Error instance
+    if (data instanceof Error) {
+      return {
+        name: data.name,
+        message: sanitizeLogData(data.message),
+        ...(config.LOG_LEVEL === 'debug' ? { stack: data.stack } : {}),
+      };
+    }
+
     const sanitized: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(data)) {
-      const isSensitive = SENSITIVE_PATTERNS.some((pattern) => pattern.test(key));
-      if (isSensitive && typeof val === 'string' && val.length > 0) {
+      const isSensitiveKey = SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+      if (isSensitiveKey && val !== null && val !== undefined) {
         sanitized[key] = '***REDACTED***';
       } else if (typeof val === 'object' && val !== null) {
+        sanitized[key] = sanitizeLogData(val);
+      } else if (typeof val === 'string') {
         sanitized[key] = sanitizeLogData(val);
       } else {
         sanitized[key] = val;
@@ -90,7 +118,7 @@ export class Logger {
       timestamp: new Date().toISOString(),
       level,
       module: this.module,
-      message,
+      message: String(sanitizeLogData(message)),
     };
 
     if (action) entry.action = action;
@@ -98,8 +126,9 @@ export class Logger {
     if (error) {
       entry.error = {
         name: error.name,
-        message: error.message,
-        stack: config.NODE_ENV !== 'production' ? error.stack : undefined,
+        message: String(sanitizeLogData(error.message)),
+        // Only include stack trace if in debug level
+        stack: config.LOG_LEVEL === 'debug' ? error.stack : undefined,
       };
     }
 

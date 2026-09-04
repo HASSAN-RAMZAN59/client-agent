@@ -17,6 +17,7 @@ build/
 *.db.bak
 dev.db
 dev.db-journal
+backups/
 
 # Playwright & test reports
 test-results/

@@ -66,119 +66,134 @@ export class LeadPipelineService {
     let draftsCreatedCount = 0;
     let emailsSimulatedCount = 0;
 
+    const outcomes: Array<{ businessName: string; status: 'SUCCESS' | 'SKIPPED' | 'FAILED'; error?: string }> = [];
+
     for (const bInput of businesses) {
-      // 2. Persist Business with deduplication
-      const { business, isNew } = await this.businessRepo.createOrGet(bInput);
-      this.log.info(`Processing business: ${business.name} (New: ${isNew})`);
+      try {
+        // 2. Persist Business with deduplication
+        const { business, isNew } = await this.businessRepo.createOrGet(bInput);
+        this.log.info(`Processing business: ${business.name} (New: ${isNew})`);
 
-      // 3. Website Audit
-      const auditResult = await this.auditProvider.audit(business.website || '');
-      auditedCount++;
+        // 3. Website Audit
+        const auditResult = await this.auditProvider.audit(business.website || '');
+        auditedCount++;
 
-      await this.db.websiteAudit.create({
-        data: {
+        await this.db.websiteAudit.create({
+          data: {
+            businessId: business.id,
+            website: auditResult.website,
+            finalUrl: auditResult.finalUrl,
+            status: auditResult.status,
+            confidence: auditResult.confidence,
+            score: auditResult.overallScore,
+            technicalScore: auditResult.categories.technical,
+            mobileScore: auditResult.categories.mobile,
+            performanceScore: auditResult.categories.performance,
+            seoScore: auditResult.categories.seo,
+            accessibilityScore: auditResult.categories.accessibility,
+            uxScore: auditResult.categories.ux,
+            contentScore: auditResult.categories.content,
+            opportunityFlags: JSON.stringify(auditResult.opportunityFlags),
+            mobileAppOpportunity: auditResult.mobileAppOpportunity,
+            mobileAppReasoning: JSON.stringify(auditResult.mobileAppReasoning),
+            findings: JSON.stringify(auditResult.findings),
+            mobileResponsive: auditResult.mobileResponsive,
+            sslValid: auditResult.sslValid,
+            hasContactForm: auditResult.hasContactForm,
+            loadTimeMs: auditResult.loadTimeMs,
+            issuesJson: JSON.stringify(auditResult.issues),
+            auditedAt: auditResult.auditedAt,
+          },
+        });
+
+        // 4. Lead Scoring & Qualification
+        const scoreResult = this.scoringProvider.calculateScore({
+          business,
+          audit: auditResult,
+          hasWebsite: Boolean(business.website && business.website.length > 0),
+          category: business.category,
+        });
+
+        const lead = await this.leadRepo.createOrUpdateLead({
           businessId: business.id,
-          website: auditResult.website,
-          finalUrl: auditResult.finalUrl,
-          status: auditResult.status,
-          confidence: auditResult.confidence,
-          score: auditResult.overallScore,
-          technicalScore: auditResult.categories.technical,
-          mobileScore: auditResult.categories.mobile,
-          performanceScore: auditResult.categories.performance,
-          seoScore: auditResult.categories.seo,
-          accessibilityScore: auditResult.categories.accessibility,
-          uxScore: auditResult.categories.ux,
-          contentScore: auditResult.categories.content,
-          opportunityFlags: JSON.stringify(auditResult.opportunityFlags),
-          mobileAppOpportunity: auditResult.mobileAppOpportunity,
-          mobileAppReasoning: JSON.stringify(auditResult.mobileAppReasoning),
-          findings: JSON.stringify(auditResult.findings),
-          mobileResponsive: auditResult.mobileResponsive,
-          sslValid: auditResult.sslValid,
-          hasContactForm: auditResult.hasContactForm,
-          loadTimeMs: auditResult.loadTimeMs,
-          issuesJson: JSON.stringify(auditResult.issues),
-          auditedAt: auditResult.auditedAt,
-        },
-      });
-
-      // 4. Lead Scoring & Qualification
-      const scoreResult = this.scoringProvider.calculateScore({
-        business,
-        audit: auditResult,
-        hasWebsite: Boolean(business.website && business.website.length > 0),
-        category: business.category,
-      });
-
-      const lead = await this.leadRepo.createOrUpdateLead({
-        businessId: business.id,
-        scoring: scoreResult,
-      });
-      leadsGeneratedCount++;
-
-      // 5. Contact Discovery (if qualified)
-      if (scoreResult.qualificationStatus === 'QUALIFIED') {
-        const contacts = await this.contactProvider.findContacts(
-          business.name,
-          business.website || undefined
-        );
-
-        for (const cInput of contacts) {
-          await this.contactRepo.addContact(business.id, cInput);
-          contactsFoundCount++;
-        }
-
-        // 6. Outreach Draft Generation
-        const primaryContact = contacts[0];
-        const draft = await this.outreachProvider.generateDraft({
-          businessName: business.name,
-          contactName: primaryContact?.contactName || undefined,
-          niche: business.category,
-          auditFindings: auditResult.issues,
+          scoring: scoreResult,
         });
+        leadsGeneratedCount++;
 
-        const outreach = await this.db.outreach.create({
-          data: {
-            leadId: lead.id,
-            channel: 'EMAIL',
-            subject: draft.subject,
-            body: draft.body,
-            status: 'DRAFT',
-          },
-        });
-        draftsCreatedCount++;
+        // 5. Contact Discovery (if qualified)
+        if (scoreResult.qualificationStatus === 'QUALIFIED') {
+          const contacts = await this.contactProvider.findContacts(
+            business.name,
+            business.website || undefined
+          );
 
-        // 7. Schedule Follow-up
-        const { scheduledAt } = await this.followupProvider.scheduleFollowUp(outreach.id, 3);
-        await this.db.followUp.create({
-          data: {
-            outreachId: outreach.id,
-            sequenceNumber: 1,
-            scheduledAt,
-            status: 'PENDING',
-          },
-        });
+          for (const cInput of contacts) {
+            await this.contactRepo.addContact(business.id, cInput);
+            contactsFoundCount++;
+          }
 
-        // 8. Simulated Email Dispatch (Adhering to DRY_RUN)
-        if (primaryContact?.email) {
-          const sendResult = await this.emailProvider.sendEmail({
-            to: primaryContact.email,
-            subject: draft.subject,
-            body: draft.body,
+          // 6. Outreach Draft Generation
+          const primaryContact = contacts[0];
+          const draft = await this.outreachProvider.generateDraft({
+            businessName: business.name,
+            contactName: primaryContact?.contactName || undefined,
+            niche: business.category,
+            auditFindings: auditResult.issues,
           });
 
-          if (sendResult.status === 'SIMULATED' || sendResult.status === 'SENT') {
-            await this.db.outreach.update({
-              where: { id: outreach.id },
-              data: {
-                status: sendResult.status === 'SIMULATED' ? 'DRAFT' : 'SENT',
-                sentAt: sendResult.status === 'SENT' ? new Date() : undefined,
-              },
+          const outreach = await this.db.outreach.create({
+            data: {
+              leadId: lead.id,
+              channel: 'EMAIL',
+              subject: draft.subject,
+              body: draft.body,
+              status: 'DRAFT',
+            },
+          });
+          draftsCreatedCount++;
+
+          // 7. Schedule Follow-up
+          const { scheduledAt } = await this.followupProvider.scheduleFollowUp(outreach.id, 3);
+          await this.db.followUp.create({
+            data: {
+              outreachId: outreach.id,
+              sequenceNumber: 1,
+              scheduledAt,
+              status: 'PENDING',
+            },
+          });
+
+          // 8. Simulated Email Dispatch (Adhering to DRY_RUN)
+          if (primaryContact?.email) {
+            const sendResult = await this.emailProvider.sendEmail({
+              to: primaryContact.email,
+              subject: draft.subject,
+              body: draft.body,
             });
-            emailsSimulatedCount++;
+
+            if (sendResult.status === 'SIMULATED' || sendResult.status === 'SENT') {
+              await this.db.outreach.update({
+                where: { id: outreach.id },
+                data: {
+                  status: sendResult.status === 'SIMULATED' ? 'DRAFT' : 'SENT',
+                  sentAt: sendResult.status === 'SENT' ? new Date() : undefined,
+                },
+              });
+              emailsSimulatedCount++;
+            }
           }
+        } else {
+          outcomes.push({ businessName: bInput.name, status: 'SKIPPED' });
         }
+
+        outcomes.push({ businessName: bInput.name, status: 'SUCCESS' });
+      } catch (err) {
+        this.log.error(`Error processing business "${bInput.name}":`, err);
+        outcomes.push({
+          businessName: bInput.name,
+          status: 'FAILED',
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
       // Small throttle between records for safe automation
