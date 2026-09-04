@@ -181,7 +181,7 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
       </div>
 
       {/* Provider & Safety Inspection Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+      <div className="overview-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <div className="card-label" style={{ margin: 0 }}>Active Delivery Provider</div>

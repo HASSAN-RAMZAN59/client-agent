@@ -102,7 +102,7 @@ export const AnalyticsPage: React.FC = () => {
       </div>
 
       {/* Conversion Funnel & Stage Drop-off */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', marginBottom: '24px' }}>
+      <div className="analytics-two-col" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', marginBottom: '24px' }}>
         <div className="card">
           <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#f8fafc', marginBottom: '16px' }}>
             Full Acquisition Funnel (10 Persisted Stages)

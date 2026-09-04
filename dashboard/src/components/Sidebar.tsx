@@ -84,10 +84,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onSelectPage(item.id)}
               aria-current={isActive ? 'page' : undefined}
             >
-              <Icon size={16} />
-              <span>{item.label}</span>
+              <Icon size={16} className="nav-item-icon" />
+              <span className="nav-item-label">{item.label}</span>
               {item.badge !== undefined && (
-                <span className="nav-item-badge">{item.badge}</span>
+                <span
+                  className={`nav-item-badge ${
+                    item.id === 'review' ? 'badge-review' : item.id === 'pilot' ? 'badge-pilot' : ''
+                  }`}
+                >
+                  {item.badge}
+                </span>
               )}
             </button>
           );
