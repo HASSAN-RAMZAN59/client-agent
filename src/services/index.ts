@@ -15,3 +15,7 @@ export {
 } from '../modules/campaigns/campaign-run.service.js';
 export { PilotExecutionService } from '../modules/outreach/execution/pilot-execution.service.js';
 export { AnalyticsService, analyticsService } from '../modules/analytics/analytics.service.js';
+export {
+  InteractiveReviewerService,
+  interactiveReviewerService,
+} from '../modules/outreach/review/interactive-reviewer.service.js';

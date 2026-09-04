@@ -9,6 +9,7 @@ package-lock.json.backup
 
 # Build outputs
 dist/
+dist-dashboard/
 build/
 
 # Database files

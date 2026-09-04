@@ -18,7 +18,9 @@
     "prisma:studio": "prisma studio",
     "typecheck": "tsc --noEmit",
     "db:backup": "tsx src/database/backup.ts",
-    "db:restore": "tsx src/database/restore.ts"
+    "db:restore": "tsx src/database/restore.ts",
+    "dashboard": "tsx scripts/start-dashboard.ts",
+    "build:dashboard": "vite build --config dashboard/vite.config.ts"
   },
   "keywords": [
     "lead-generation",
@@ -34,15 +36,25 @@
     "@prisma/client": "^6.4.1",
     "cheerio": "^1.2.0",
     "commander": "^13.1.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
+    "express": "^5.2.1",
     "nodemailer": "^9.0.5",
     "playwright": "^1.62.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.13.9",
     "@types/nodemailer": "^8.0.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^1.40.0",
     "prisma": "^6.4.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.7"

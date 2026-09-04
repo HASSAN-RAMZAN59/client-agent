@@ -72,7 +72,38 @@ npm run prisma:generate
 
 ---
 
-## 5. Safe Startup, Status & Health Inspection
+## 5. Local Operator Dashboard (Web UI)
+
+The system includes a complete, locally hosted single-page web dashboard (`http://127.0.0.1:3000`) for full operational visibility and pipeline execution without needing terminal commands.
+
+### Starting the Dashboard
+```powershell
+# Method 1: Windows 1-Click Launcher (double-click from Windows Explorer)
+start-dashboard.bat
+
+# Method 2: Single npm command
+npm run dashboard
+
+# Build production dashboard bundle (automatically served by backend)
+npm run build:dashboard
+```
+
+### Key Operator Views
+1. **System Overview**: Pipeline health, kill switch status, safety badges, active campaign counters, conversion funnel snapshot, quick action shortcuts.
+2. **Campaign Operations**: Create new campaigns with market/niche inputs, trigger pipeline runs, track live multi-stage execution progress, view stage metrics.
+3. **Lead Intelligence Explorer**: Searchable, filterable list of all discovered businesses, opportunity scores, tech stack detections, and deep drawer inspection.
+4. **Human Review Queue**: Single-card human review interface showing draft variants, evidence citations, live edit re-approval requirements, and one-click approvals.
+5. **Pilot & Dry-Run Operations**: Safe simulation console showing approved candidates (Chapman Air & Heat, Dallas Dental Specialists), pre-send policy checks, dry-run simulations (0 real emails), and live-send policy blockage warnings.
+6. **Phone Lead Management**: Dedicated workflow for businesses without verified email, tracking phone numbers, contact status, and operator call notes.
+7. **Inbox & Reply Classifier**: Inbound communication management with automated sentiment tagging (`POSITIVE`, `OBJECTION`, `UNSUBSCRIBE`), and suppression list status.
+8. **Funnel & Acquisition Analytics**: 10-stage real conversion funnel, channel performance, objection analysis, and Phase 12 read-only metrics card (`PENDING_REAL_PILOT_DATA`).
+9. **Activity Audit Log**: Full chronological trail of system and operator actions with automated masking of sensitive secrets and credentials.
+10. **System Health & Safety Guardrails**: Real-time status of Playwright Chromium, SQLite database, SMTP transport policy, and active kill switches.
+11. **Settings & Provider Configuration**: Operational limits, masked environment secrets, and configuration slots for future commercial outbound providers.
+
+---
+
+## 6. Safe Startup, Status & Health Inspection
 
 ```powershell
 # Verify full system health (Playwright, SQLite, SMTP, Safety Mode — ZERO SENDS)
@@ -87,7 +118,7 @@ npm run cli -- integrity
 
 ---
 
-## 6. Database Backup & Safe Restore
+## 7. Database Backup & Safe Restore
 
 The database uses zero-cost local SQLite storage with atomic backup tooling.
 
@@ -105,7 +136,7 @@ npm run db:restore -- --file backups/dev-2026-09-04-102342.db --confirm RESTORE
 
 ---
 
-## 7. Campaign Lifecycle & Execution States
+## 8. Campaign Lifecycle & Execution States
 
 Campaign runs progress through strictly tracked, non-fabricated states:
 
@@ -122,7 +153,7 @@ CREATED
 
 ---
 
-## 8. Controlled Live Pilot Preview (Dry-Run Simulation)
+## 9. Controlled Live Pilot Preview (Dry-Run Simulation)
 
 Inspect approved candidates and pre-send safety validation without sending network emails:
 
@@ -135,7 +166,7 @@ npm run cli -- pilot-preview --limit 3
 
 ---
 
-## 9. Testing & Quality Verification
+## 10. Testing & Quality Verification
 
 ```powershell
 # Run full Vitest suite (all unit, integration, and safety tests)
@@ -150,14 +181,14 @@ npm run build
 
 ---
 
-## 10. Phase 12 Conversion Optimization Status
+## 11. Phase 12 Conversion Optimization Status
 
 **Status**: `PENDING_REAL_PILOT_DATA`  
 Synthetic dry-run data is never presented as real conversion performance. See [docs/PHASE12_STATUS.md](docs/PHASE12_STATUS.md) for required real-world signal specifications.
 
 ---
 
-## 11. Known Operational Limitations
+## 12. Known Operational Limitations
 
 1. **Personal Gmail SMTP**: Cannot be used for outbound cold commercial messaging under Google Gmail Program Policies. A business Google Workspace account with custom domain or dedicated commercial transactional SMTP provider is required for future live outreach.
 2. **SQLite Storage**: Highly efficient for single-operator local pipelines up to hundreds of thousands of leads, but concurrent multi-node write operations require Postgres or MySQL in enterprise deployments.
