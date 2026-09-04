@@ -1,5 +1,12 @@
 // API TypeScript Interfaces for Operator Dashboard
 
+export interface NavigationSummary {
+  campaignId: string | null;
+  isScoped: boolean;
+  pendingReview: number;
+  readyToSend: number;
+}
+
 export interface SystemStatusSummary {
   environment: string;
   database: {

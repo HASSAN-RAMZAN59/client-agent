@@ -31,6 +31,7 @@ interface SidebarProps {
   onSelectPage: (page: PageId) => void;
   pendingReviewCount?: number;
   approvedCount?: number;
+  selectedCampaignId?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -38,7 +39,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectPage,
   pendingReviewCount = 0,
   approvedCount = 0,
+  selectedCampaignId = '',
 }) => {
+  const isScoped = Boolean(selectedCampaignId && selectedCampaignId.trim().length > 0);
+
   const navItems = [
     { id: 'overview' as PageId, label: 'Overview', icon: LayoutDashboard },
     { id: 'campaigns' as PageId, label: 'Campaigns', icon: Target },
@@ -47,13 +51,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'review' as PageId,
       label: 'Review Queue',
       icon: CheckSquare,
-      badge: pendingReviewCount > 0 ? pendingReviewCount : undefined,
+      badge: isScoped ? (pendingReviewCount > 0 ? pendingReviewCount : undefined) : undefined,
     },
     {
       id: 'pilot' as PageId,
       label: 'Pilot Control',
       icon: Send,
-      badge: approvedCount > 0 ? `${approvedCount} Ready` : undefined,
+      badge: isScoped ? (approvedCount > 0 ? `${approvedCount} Ready` : undefined) : undefined,
     },
     { id: 'phone-leads' as PageId, label: 'Phone Leads', icon: PhoneCall },
     { id: 'replies' as PageId, label: 'Replies', icon: MessageSquare },

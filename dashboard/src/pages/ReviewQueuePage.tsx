@@ -3,12 +3,30 @@ import { api } from '../services/api.ts';
 import { CampaignSummary, ReviewBusinessGroup, PilotReviewItemVariant } from '../types/api.ts';
 import { StatusBadge } from '../components/StatusBadge.tsx';
 import { Check, X, Edit3, SkipForward, ExternalLink, ShieldCheck, AlertCircle } from 'lucide-react';
+import { useCampaign } from '../context/CampaignContext.tsx';
 
 export const ReviewQueuePage: React.FC<{
-  campaigns: CampaignSummary[];
-  selectedCampaignId: string;
-  onSelectCampaign: (id: string) => void;
-}> = ({ campaigns, selectedCampaignId, onSelectCampaign }) => {
+  campaigns?: CampaignSummary[];
+  selectedCampaignId?: string;
+  onSelectCampaign?: (id: string) => void;
+  onRefreshCounts?: () => void;
+}> = ({
+  campaigns: propCampaigns,
+  selectedCampaignId: propSelectedId,
+  onSelectCampaign: propOnSelect,
+  onRefreshCounts: propOnRefresh,
+}) => {
+  let context: ReturnType<typeof useCampaign> | null = null;
+  try {
+    context = useCampaign();
+  } catch {
+    context = null;
+  }
+
+  const campaigns = propCampaigns ?? context?.campaigns ?? [];
+  const selectedCampaignId = propSelectedId !== undefined ? propSelectedId : (context?.selectedCampaignId ?? '');
+  const onSelectCampaign = propOnSelect ?? context?.setSelectedCampaignId ?? (() => {});
+  const onRefreshCounts = propOnRefresh ?? context?.refreshNavigationSummary ?? (() => {});
   const [groups, setGroups] = useState<ReviewBusinessGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +91,7 @@ export const ReviewQueuePage: React.FC<{
     try {
       const res = await api.approveDraft(selectedVariantId, 'HUMAN_OPERATOR');
       setApprovalResult(res);
+      if (onRefreshCounts) onRefreshCounts();
 
       // Advance to next after approval
       setTimeout(() => {
@@ -95,6 +114,7 @@ export const ReviewQueuePage: React.FC<{
     try {
       await api.rejectBusiness(rejectingBusinessId, rejectReason, 'HUMAN_OPERATOR');
       setRejectingBusinessId(null);
+      if (onRefreshCounts) onRefreshCounts();
       if (currentIndex < groups.length - 1) {
         setCurrentIndex((idx) => idx + 1);
       } else {

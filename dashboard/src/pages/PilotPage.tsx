@@ -3,8 +3,21 @@ import { api } from '../services/api.ts';
 import { PilotCandidate } from '../types/api.ts';
 import { StatusBadge } from '../components/StatusBadge.tsx';
 import { ShieldCheck, ShieldAlert, Play, Eye, AlertOctagon, CheckCircle2 } from 'lucide-react';
+import { useCampaign } from '../context/CampaignContext.tsx';
 
-export const PilotPage: React.FC = () => {
+export const PilotPage: React.FC<{
+  selectedCampaignId?: string;
+  onRefreshCounts?: () => void;
+}> = ({ selectedCampaignId: propSelectedId, onRefreshCounts: propOnRefresh }) => {
+  let context: ReturnType<typeof useCampaign> | null = null;
+  try {
+    context = useCampaign();
+  } catch {
+    context = null;
+  }
+
+  const selectedCampaignId = propSelectedId !== undefined ? propSelectedId : (context?.selectedCampaignId ?? '');
+  const onRefreshCounts = propOnRefresh ?? context?.refreshNavigationSummary ?? (() => {});
   const [candidates, setCandidates] = useState<PilotCandidate[]>([]);
   const [providerPolicy, setProviderPolicy] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,14 +31,10 @@ export const PilotPage: React.FC = () => {
   const [loadingDryRun, setLoadingDryRun] = useState(false);
   const [showDryRunConfirm, setShowDryRunConfirm] = useState(false);
 
-  useEffect(() => {
-    loadCandidates();
-  }, []);
-
   async function loadCandidates() {
     try {
       setLoading(true);
-      const res = await api.getPilotCandidates();
+      const res = await api.getPilotCandidates(selectedCampaignId || undefined);
       setCandidates(res.candidates);
       setProviderPolicy(res.providerPolicy);
     } catch (err: any) {
@@ -35,12 +44,21 @@ export const PilotPage: React.FC = () => {
     }
   }
 
+  useEffect(() => {
+    loadCandidates();
+  }, [selectedCampaignId]);
+
   async function handleRunPreview() {
     try {
       setLoadingPreview(true);
       setPreviewResult(null);
-      const res = await api.previewPilot({ limit: 3, country: 'US' });
+      const res = await api.previewPilot({
+        limit: 3,
+        country: 'US',
+        campaignId: selectedCampaignId || undefined,
+      });
       setPreviewResult(res);
+      if (onRefreshCounts) onRefreshCounts();
     } catch (err: any) {
       alert(`Pilot preview failed: ${err.message}`);
     } finally {
@@ -53,9 +71,13 @@ export const PilotPage: React.FC = () => {
       setLoadingDryRun(true);
       setShowDryRunConfirm(false);
       setDryRunResult(null);
-      const res = await api.runDryRun({ limit: 2 });
+      const res = await api.runDryRun({
+        limit: 2,
+        campaignId: selectedCampaignId || undefined,
+      });
       setDryRunResult(res);
       await loadCandidates();
+      if (onRefreshCounts) onRefreshCounts();
     } catch (err: any) {
       alert(`Dry run simulation failed: ${err.message}`);
     } finally {

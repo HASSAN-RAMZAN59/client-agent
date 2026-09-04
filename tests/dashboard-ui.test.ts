@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { StatusBadge } from '../dashboard/src/components/StatusBadge.tsx';
+import { Sidebar } from '../dashboard/src/components/Sidebar.tsx';
 import React from 'react';
 
 describe('Frontend UI & Workflow Logic Tests', () => {
@@ -141,4 +142,90 @@ describe('Frontend UI & Workflow Logic Tests', () => {
       expect(isValidConfirmation('RESTORE')).toBe(true);
     });
   });
+
+  describe('8. Navigation Badge & Campaign Scope Semantics', () => {
+    // Helper to find a nav item by id in rendered Sidebar
+    const getNavItem = (sidebarElement: any, navId: string) => {
+      const nav = sidebarElement.props.children[1]; // <nav className="sidebar-nav">
+      const buttons = nav.props.children;
+      return buttons.find((btn: any) => btn.key === navId);
+    };
+
+    it('should NOT render badge for Review Queue when campaign has 0 pending reviews (never 116)', () => {
+      const sidebar = Sidebar({
+        activePage: 'overview',
+        onSelectPage: () => {},
+        pendingReviewCount: 0,
+        approvedCount: 0,
+        selectedCampaignId: 'phase-11-campaign-id',
+      });
+
+      const reviewBtn = getNavItem(sidebar, 'review');
+      expect(reviewBtn).toBeDefined();
+      // Badge child (children[2]) is false when badge is undefined
+      expect(reviewBtn.props.children[2]).toBe(false);
+    });
+
+    it('should render exact scoped badge count when campaign has pending reviews', () => {
+      const sidebar = Sidebar({
+        activePage: 'overview',
+        onSelectPage: () => {},
+        pendingReviewCount: 5,
+        approvedCount: 0,
+        selectedCampaignId: 'active-campaign-id',
+      });
+
+      const reviewBtn = getNavItem(sidebar, 'review');
+      expect(reviewBtn).toBeDefined();
+      const badge = reviewBtn.props.children[2];
+      expect(badge).toBeTruthy();
+      expect(badge.props.children).toBe(5);
+    });
+
+    it('should NOT render badges when no campaign is selected (un-scoped / global view)', () => {
+      const sidebar = Sidebar({
+        activePage: 'overview',
+        onSelectPage: () => {},
+        pendingReviewCount: 116, // global count
+        approvedCount: 2,        // global count
+        selectedCampaignId: '',   // un-scoped
+      });
+
+      const reviewBtn = getNavItem(sidebar, 'review');
+      expect(reviewBtn.props.children[2]).toBe(false);
+
+      const pilotBtn = getNavItem(sidebar, 'pilot');
+      expect(pilotBtn.props.children[2]).toBe(false);
+    });
+
+    it('should render scoped approved count for Pilot Control when campaign has approved drafts', () => {
+      const sidebar = Sidebar({
+        activePage: 'overview',
+        onSelectPage: () => {},
+        pendingReviewCount: 0,
+        approvedCount: 2,
+        selectedCampaignId: 'us-pilot-campaign-id',
+      });
+
+      const pilotBtn = getNavItem(sidebar, 'pilot');
+      expect(pilotBtn).toBeDefined();
+      const badge = pilotBtn.props.children[2];
+      expect(badge).toBeTruthy();
+      expect(badge.props.children).toBe('2 Ready');
+    });
+
+    it('should NOT render Pilot Control badge when active campaign has 0 approved drafts', () => {
+      const sidebar = Sidebar({
+        activePage: 'overview',
+        onSelectPage: () => {},
+        pendingReviewCount: 0,
+        approvedCount: 0,
+        selectedCampaignId: 'phase-11-campaign-id',
+      });
+
+      const pilotBtn = getNavItem(sidebar, 'pilot');
+      expect(pilotBtn.props.children[2]).toBe(false);
+    });
+  });
 });
+

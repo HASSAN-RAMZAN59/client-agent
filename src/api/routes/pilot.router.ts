@@ -4,6 +4,7 @@ import { getPrismaClient } from '../../database/client.js';
 import { PilotExecutionService } from '../../modules/outreach/execution/pilot-execution.service.js';
 import { SmtpDeliveryProvider } from '../../modules/outreach/execution/smtp-delivery.provider.js';
 import { activityLogService } from '../../services/index.js';
+import { TEST_BUSINESS_FILTER } from '../../database/test-exclusion.js';
 import { logger } from '../../utils/logger.js';
 
 export const pilotRouter = Router();
@@ -15,20 +16,29 @@ const smtpProvider = new SmtpDeliveryProvider();
 /**
  * GET /api/pilot/candidates
  * Fetches approved pilot candidates including Chapman Air & Heat and Dallas Dental Specialists.
+ * Supports optional ?campaignId=<id> or ?campaign=<id> for campaign-scoped candidate views.
  */
-pilotRouter.get('/pilot/candidates', async (_req: Request, res: Response) => {
+pilotRouter.get('/pilot/candidates', async (req: Request, res: Response) => {
   try {
+    const rawCampaignId = (req.query.campaignId || req.query.campaign) as string | undefined;
+    const campaignId = rawCampaignId ? rawCampaignId.trim() : '';
+
+    const businessWhere: any = {
+      ...TEST_BUSINESS_FILTER,
+    };
+
+    if (campaignId) {
+      businessWhere.OR = [
+        { campaignId },
+        { campaignBusinesses: { some: { campaignId } } },
+      ];
+    }
+
     const drafts = await db.outreach.findMany({
       where: {
         status: { in: ['APPROVED', 'READY_TO_SEND'] },
         lead: {
-          business: {
-            NOT: [
-              { source: { startsWith: 'test' } },
-              { source: 'TEST_SUITE' },
-              { name: { startsWith: 'Test' } },
-            ],
-          },
+          business: businessWhere,
         },
       },
       include: {

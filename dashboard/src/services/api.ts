@@ -3,6 +3,7 @@
 import {
   SystemStatusSummary,
   DetailedHealthStatus,
+  NavigationSummary,
   CampaignSummary,
   LeadListItem,
   LeadDetail,
@@ -37,6 +38,10 @@ export const api = {
   // System Status & Health
   getStatus: () => request<SystemStatusSummary>('/status'),
   getHealth: () => request<DetailedHealthStatus>('/health'),
+  getNavigationSummary: (campaignId?: string) => {
+    const qs = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : '';
+    return request<NavigationSummary>(`/navigation-summary${qs}`);
+  },
 
   // Campaigns
   getCampaigns: () => request<CampaignSummary[]>('/campaigns'),
@@ -87,8 +92,12 @@ export const api = {
     }),
 
   // Pilot & Safe Dry-Run
-  getPilotCandidates: () =>
-    request<{ total: number; candidates: PilotCandidate[]; providerPolicy: any }>('/pilot/candidates'),
+  getPilotCandidates: (campaignId?: string) => {
+    const qs = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : '';
+    return request<{ total: number; candidates: PilotCandidate[]; providerPolicy: any }>(
+      `/pilot/candidates${qs}`
+    );
+  },
   previewPilot: (params: { limit?: number; campaignId?: string; country?: string }) => {
     const searchParams = new URLSearchParams();
     if (params.limit) searchParams.append('limit', String(params.limit));

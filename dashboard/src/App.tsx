@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CampaignProvider, useCampaign } from './context/CampaignContext.tsx';
 import { Sidebar, PageId } from './components/Sidebar.tsx';
 import { Topbar } from './components/Topbar.tsx';
 import { OverviewPage } from './pages/OverviewPage.tsx';
@@ -13,37 +14,28 @@ import { ActivityPage } from './pages/ActivityPage.tsx';
 import { SystemHealthPage } from './pages/SystemHealthPage.tsx';
 import { SettingsPage } from './pages/SettingsPage.tsx';
 import { api } from './services/api.ts';
-import { CampaignSummary } from './types/api.ts';
 
-export const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [activePage, setActivePage] = useState<PageId>('overview');
-  const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
-  const [pendingReviewCount, setPendingReviewCount] = useState<number>(0);
-  const [approvedCount, setApprovedCount] = useState<number>(0);
   const [systemHealthy, setSystemHealthy] = useState<boolean>(true);
+  const {
+    campaigns,
+    selectedCampaignId,
+    setSelectedCampaignId,
+    pendingReviewCount,
+    approvedCount,
+  } = useCampaign();
 
   useEffect(() => {
-    async function loadGlobalContext() {
+    async function checkHealth() {
       try {
-        const [cList, status, health] = await Promise.all([
-          api.getCampaigns(),
-          api.getStatus(),
-          api.getHealth(),
-        ]);
-        setCampaigns(cList);
-        if (cList.length > 0 && !selectedCampaignId) {
-          // Pre-select first active campaign
-          setSelectedCampaignId(cList[0]?.id || '');
-        }
-        setPendingReviewCount(status.counts.pendingReview || 0);
-        setApprovedCount(status.counts.approved || 0);
+        const health = await api.getHealth();
         setSystemHealthy(health.status === 'healthy');
       } catch (err) {
-        console.error('Failed to load global context', err);
+        console.error('Failed to load health status', err);
       }
     }
-    loadGlobalContext();
+    checkHealth();
   }, []);
 
   return (
@@ -52,6 +44,7 @@ export const App: React.FC = () => {
       <Sidebar
         activePage={activePage}
         onSelectPage={(page) => setActivePage(page)}
+        selectedCampaignId={selectedCampaignId}
         pendingReviewCount={pendingReviewCount}
         approvedCount={approvedCount}
       />
@@ -81,14 +74,12 @@ export const App: React.FC = () => {
         )}
 
         {activePage === 'review' && (
-          <ReviewQueuePage
-            campaigns={campaigns}
-            selectedCampaignId={selectedCampaignId}
-            onSelectCampaign={(id) => setSelectedCampaignId(id)}
-          />
+          <ReviewQueuePage />
         )}
 
-        {activePage === 'pilot' && <PilotPage />}
+        {activePage === 'pilot' && (
+          <PilotPage />
+        )}
 
         {activePage === 'phone-leads' && <PhoneLeadsPage />}
 
@@ -103,5 +94,13 @@ export const App: React.FC = () => {
         {activePage === 'settings' && <SettingsPage />}
       </div>
     </div>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <CampaignProvider>
+      <AppContent />
+    </CampaignProvider>
   );
 };

@@ -132,11 +132,11 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
         </div>
 
         <div className="card">
-          <div className="card-label">Pending Review</div>
+          <div className="card-label">Pending Review — All Campaigns</div>
           <div className="card-value" style={{ color: '#38bdf8' }}>
             {counts.pendingReview}
           </div>
-          <div className="card-subtext">Unique businesses awaiting sign-off</div>
+          <div className="card-subtext">Unique businesses awaiting sign-off across all campaigns</div>
         </div>
 
         <div className="card">

@@ -1,20 +1,31 @@
 import React from 'react';
 import { StatusBadge } from './StatusBadge.tsx';
 import { CampaignSummary } from '../types/api.ts';
+import { useCampaign } from '../context/CampaignContext.tsx';
 
 interface TopbarProps {
-  campaigns: CampaignSummary[];
-  selectedCampaignId: string;
-  onSelectCampaign: (id: string) => void;
+  campaigns?: CampaignSummary[];
+  selectedCampaignId?: string;
+  onSelectCampaign?: (id: string) => void;
   systemHealthy?: boolean;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
-  campaigns,
-  selectedCampaignId,
-  onSelectCampaign,
+  campaigns: propCampaigns,
+  selectedCampaignId: propSelectedId,
+  onSelectCampaign: propOnSelect,
   systemHealthy = true,
 }) => {
+  let context: ReturnType<typeof useCampaign> | null = null;
+  try {
+    context = useCampaign();
+  } catch {
+    context = null;
+  }
+
+  const campaigns = propCampaigns ?? context?.campaigns ?? [];
+  const selectedCampaignId = propSelectedId !== undefined ? propSelectedId : (context?.selectedCampaignId ?? '');
+  const onSelectCampaign = propOnSelect ?? context?.setSelectedCampaignId ?? (() => {});
   return (
     <header className="topbar" aria-label="Status Bar">
       <div className="topbar-left">
