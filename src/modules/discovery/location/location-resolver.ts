@@ -1,5 +1,6 @@
 import {
   LocationResolutionInput,
+  LocationResolutionStatus,
   ResolvedLocation,
   OverpassElementCandidate,
   OverpassQueryExecutor,

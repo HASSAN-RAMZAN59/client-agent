@@ -71,7 +71,9 @@ export const CampaignProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setLoading(true);
         const cList = await reloadCampaigns();
         if (cList.length > 0) {
-          setSelectedCampaignIdState((prev) => prev || cList[0]?.id || '');
+          setSelectedCampaignIdState((prev) => (cList.some((c) => c.id === prev) ? prev : cList[0]?.id || ''));
+        } else {
+          setSelectedCampaignIdState('');
         }
       } finally {
         setLoading(false);

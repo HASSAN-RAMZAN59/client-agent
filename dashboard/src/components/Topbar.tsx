@@ -38,7 +38,9 @@ export const Topbar: React.FC<TopbarProps> = ({
           value={selectedCampaignId}
           onChange={(e) => onSelectCampaign(e.target.value)}
         >
-          <option value="">-- All Campaigns / Global View --</option>
+          <option value="">
+            {campaigns.length === 0 ? 'No Active Campaign' : '-- All Campaigns / Global View --'}
+          </option>
           {campaigns.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name} ({c.city}, {c.niche})
