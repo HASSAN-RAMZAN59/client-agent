@@ -58,6 +58,25 @@ export type SourceStatus =
   | 'DISABLED'
   | 'ERROR';
 
+export type DiscoverySourceOutcome =
+  | 'SUCCESS_WITH_RESULTS'
+  | 'SUCCESS_EMPTY'
+  | 'BLOCKED'
+  | 'TIMEOUT'
+  | 'RATE_LIMITED'
+  | 'NETWORK_ERROR'
+  | 'QUERY_ERROR'
+  | 'LOCATION_RESOLUTION_FAILED'
+  | 'LOCATION_AMBIGUOUS'
+  | 'SKIPPED'
+  | 'DISABLED';
+
+export type DiscoveryAggregateOutcome =
+  | 'SUCCESS_WITH_RESULTS'
+  | 'SUCCESS_EMPTY'
+  | 'SOURCE_PARTIAL_FAILURE'
+  | 'SOURCE_FAILURE';
+
 export type WebsiteReachabilityStatus =
   | 'WEBSITE_FOUND'
   | 'WEBSITE_REACHABLE'

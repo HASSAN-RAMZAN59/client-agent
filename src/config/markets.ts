@@ -254,3 +254,14 @@ export function getMarketProfile(countryOrCode?: string): CountryMarketProfile {
 
   return match || GLOBAL_FALLBACK_PROFILE;
 }
+
+/**
+ * Returns canonical ISO country code and standardized country name.
+ */
+export function normalizeCountry(countryOrCode?: string): { code: string; name: string } {
+  const profile = getMarketProfile(countryOrCode);
+  return {
+    code: profile.countryCode,
+    name: profile.countryName,
+  };
+}

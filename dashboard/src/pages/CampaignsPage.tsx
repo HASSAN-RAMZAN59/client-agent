@@ -550,9 +550,21 @@ export const CampaignsPage: React.FC<{
                     </div>
                   </div>
 
-                  {runProgress.status === 'COMPLETED' && (
+                  {runProgress.status === 'COMPLETED' && runProgress.discovered > 0 && (
                     <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', color: '#34d399', fontSize: '13px' }}>
                       ✓ Pipeline run completed successfully. Leads and drafts are ready for operator review.
+                    </div>
+                  )}
+
+                  {runProgress.status === 'COMPLETED' && runProgress.discovered === 0 && (
+                    <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '6px', color: '#60a5fa', fontSize: '13px' }}>
+                      ℹ Pipeline completed normally: Zero listings matched this locality and niche in public directories.
+                    </div>
+                  )}
+
+                  {runProgress.status === 'PARTIAL_FAILURE' && (
+                    <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '6px', color: '#fbbf24', fontSize: '13px' }}>
+                      ⚠ Discovery partial failure: Sources were blocked, timed out, or location could not be verified.
                     </div>
                   )}
 

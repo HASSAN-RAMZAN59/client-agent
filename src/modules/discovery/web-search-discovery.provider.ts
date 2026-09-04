@@ -3,12 +3,14 @@ import {
   BusinessDiscoveryQuery,
   DiscoveredBusinessInput,
   LeadContactChannel,
+  DiscoverySourceOutcome,
+  DiscoveryAggregateOutcome,
 } from '../../types/index.js';
 import { DiscoverySource, SourceMetrics } from './discovery-source.interface.js';
 import { OsmOverpassDiscoverySource } from './sources/osm-overpass.source.js';
 import { DuckDuckGoSearchDiscoverySource } from './sources/duckduckgo-search.source.js';
-import { verifyWebsiteReachability, WebsiteReachabilityResult } from './website-verifier.js';
 import { createBusinessMatchKey, extractCanonicalDomain } from './normalizer.js';
+import { verifyWebsiteReachability, WebsiteReachabilityResult } from './website-verifier.js';
 import { getMarketProfile } from '../../config/markets.js';
 import { safetyControls } from '../../config/safety.js';
 import { safeSleep } from '../../utils/sleeper.js';
@@ -22,6 +24,7 @@ export interface SourceReportItem {
   name: string;
   type: string;
   status: string;
+  outcome: DiscoverySourceOutcome;
   metrics: SourceMetrics;
 }
 
@@ -30,8 +33,15 @@ export interface DiscoveryExecutionSummary {
   niche: string;
   requested: number;
   discovered: number;
+  rawDiscovered: number;
+  uniqueDiscovered: number;
   newBusinesses: number;
   duplicates: number;
+  existingInDb: number;
+  addedToCampaign: number;
+  alreadyCampaignMembers: number;
+  discoveryOutcome: DiscoveryAggregateOutcome;
+  discoveryErrorMessage?: string;
   websitesFound: number;
   noWebsites: number;
   reachableWebsites: number;
@@ -93,6 +103,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
     const seenNameCityKeys = new Set<string>();
     const seenDomains = new Set<string>();
     let totalRequestsMade = 0;
+    let rawDiscoveredCount = 0;
 
     for (const source of this.sources) {
       if (discoveredCandidates.length >= effectiveLimit) break;
@@ -114,6 +125,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
           limit: remainingNeeded,
         });
 
+        rawDiscoveredCount += sourceResults.length;
         totalRequestsMade += source.getMetrics().requestsCount;
 
         for (const candidate of sourceResults) {
@@ -231,28 +243,93 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
       }
     }
 
-    const sourceReports: SourceReportItem[] = this.sources.map((s) => ({
-      name: s.name,
-      type: s.type,
-      status: s.status || 'AVAILABLE',
-      metrics: typeof s.getMetrics === 'function'
-        ? s.getMetrics()
-        : {
-            requestsCount: 0,
-            successfulCount: 0,
-            failedCount: 0,
-            blockedCount: 0,
-            itemsDiscovered: 0,
-          },
-    }));
+    const sourceReports: SourceReportItem[] = this.sources.map((s) => {
+      let outcome: DiscoverySourceOutcome = 'SUCCESS_EMPTY';
+      if (typeof s.getOutcome === 'function') {
+        outcome = s.getOutcome();
+      } else if (s.status === 'BLOCKED') {
+        outcome = 'BLOCKED';
+      } else if (s.status === 'DISABLED') {
+        outcome = 'DISABLED';
+      }
+
+      return {
+        name: s.name,
+        type: s.type,
+        status: s.status || 'AVAILABLE',
+        outcome,
+        metrics: typeof s.getMetrics === 'function'
+          ? s.getMetrics()
+          : {
+              requestsCount: 0,
+              successfulCount: 0,
+              failedCount: 0,
+              blockedCount: 0,
+              itemsDiscovered: 0,
+            },
+      };
+    });
+
+    // Compute aggregate outcome across all enabled discovery sources
+    let discoveryOutcome: DiscoveryAggregateOutcome = 'SUCCESS_EMPTY';
+    let discoveryErrorMessage: string | undefined;
+
+    const enabledReports = sourceReports.filter((r) => r.status !== 'DISABLED');
+
+    if (enhancedResults.length > 0) {
+      discoveryOutcome = 'SUCCESS_WITH_RESULTS';
+    } else if (enabledReports.length === 0) {
+      discoveryOutcome = 'SUCCESS_EMPTY';
+    } else {
+      const allFailed = enabledReports.every(
+        (r) =>
+          r.outcome === 'BLOCKED' ||
+          r.outcome === 'TIMEOUT' ||
+          r.outcome === 'RATE_LIMITED' ||
+          r.outcome === 'NETWORK_ERROR' ||
+          r.outcome === 'QUERY_ERROR' ||
+          r.outcome === 'LOCATION_RESOLUTION_FAILED' ||
+          r.outcome === 'LOCATION_AMBIGUOUS' ||
+          r.status === 'BLOCKED' ||
+          r.status === 'ERROR'
+      );
+
+      const anyFailed = enabledReports.some(
+        (r) =>
+          r.outcome === 'BLOCKED' ||
+          r.outcome === 'TIMEOUT' ||
+          r.outcome === 'RATE_LIMITED' ||
+          r.outcome === 'NETWORK_ERROR' ||
+          r.outcome === 'QUERY_ERROR' ||
+          r.outcome === 'LOCATION_RESOLUTION_FAILED' ||
+          r.outcome === 'LOCATION_AMBIGUOUS'
+      );
+
+      if (allFailed) {
+        discoveryOutcome = 'SOURCE_FAILURE';
+        discoveryErrorMessage = `All discovery sources failed or were blocked: ${enabledReports.map((r) => `${r.name} (${r.outcome})`).join(', ')}`;
+      } else if (anyFailed) {
+        discoveryOutcome = 'SOURCE_PARTIAL_FAILURE';
+        discoveryErrorMessage = `Partial discovery source failure: ${enabledReports.filter((r) => r.outcome !== 'SUCCESS_EMPTY' && r.outcome !== 'SUCCESS_WITH_RESULTS').map((r) => `${r.name} (${r.outcome})`).join(', ')}`;
+      } else {
+        discoveryOutcome = 'SUCCESS_EMPTY';
+      }
+    }
 
     return {
       market: `${query.city}${query.state ? `, ${query.state}` : ''}, ${market.countryName}`,
       niche: query.niche,
       requested: requestedTarget,
       discovered: enhancedResults.length,
+      rawDiscovered: rawDiscoveredCount,
+      uniqueDiscovered: discoveredCandidates.length,
       newBusinesses: 0, // Populated after DB upsert
       duplicates: 0,    // Populated after DB upsert
+      existingInDb: 0,  // Populated after DB upsert
+      addedToCampaign: 0, // Populated after DB upsert
+      alreadyCampaignMembers: 0, // Populated after DB upsert
+      discoveryOutcome,
+      discoveryErrorMessage,
       websitesFound,
       noWebsites,
       reachableWebsites,

@@ -17,7 +17,9 @@ import {
   CampaignRecord,
   CampaignPacingSummary,
   CampaignFunnelSummary,
+  DiscoveryAggregateOutcome,
 } from '../../types/index.js';
+import { SourceReportItem } from '../discovery/web-search-discovery.provider.js';
 import { safetyControls } from '../../config/safety.js';
 import { logger } from '../../utils/logger.js';
 
@@ -25,7 +27,15 @@ export interface CampaignRunResult {
   campaignId: string;
   campaignName: string;
   discovered: number;
+  rawDiscovered?: number;
+  uniqueDiscovered?: number;
+  existingInDb?: number;
   newBusinesses: number;
+  addedToCampaign?: number;
+  alreadyMembers?: number;
+  discoveryOutcome?: DiscoveryAggregateOutcome;
+  discoveryErrorMessage?: string;
+  sourceReports?: SourceReportItem[];
   audited: number;
   leadsScored: number;
   qualifiedLeads: number;
@@ -126,7 +136,18 @@ export class CampaignService {
 
     const discoveredItems = discoverySummary.results || [];
     let newBusinessesCount = 0;
+    let existingInDbCount = 0;
     const businessIds: string[] = [];
+
+    // Pre-check campaign members to track addition vs existing membership
+    const preExistingCampaignBiz = await this.db.campaignBusiness.findMany({
+      where: { campaignId: campaign.id },
+      select: { businessId: true },
+    });
+    const preExistingMemberSet = new Set(preExistingCampaignBiz.map((b) => b.businessId));
+
+    let newlyAddedToCampaignCount = 0;
+    let alreadyCampaignMemberCount = 0;
 
     // 2. Persist & link to Campaign
     for (const item of discoveredItems) {
@@ -134,7 +155,18 @@ export class CampaignService {
         item,
         item.reachability
       );
-      if (isNew) newBusinessesCount++;
+      if (isNew) {
+        newBusinessesCount++;
+      } else {
+        existingInDbCount++;
+      }
+
+      if (preExistingMemberSet.has(business.id)) {
+        alreadyCampaignMemberCount++;
+      } else {
+        newlyAddedToCampaignCount++;
+      }
+
       businessIds.push(business.id);
     }
 
@@ -241,7 +273,15 @@ export class CampaignService {
       campaignId: campaign.id,
       campaignName: campaign.name,
       discovered: discoveredItems.length,
+      rawDiscovered: discoverySummary.rawDiscovered ?? discoveredItems.length,
+      uniqueDiscovered: discoverySummary.uniqueDiscovered ?? discoveredItems.length,
+      existingInDb: existingInDbCount,
       newBusinesses: newBusinessesCount,
+      addedToCampaign: newlyAddedToCampaignCount,
+      alreadyMembers: alreadyCampaignMemberCount,
+      discoveryOutcome: discoverySummary.discoveryOutcome ?? (discoveredItems.length > 0 ? 'SUCCESS_WITH_RESULTS' : 'SUCCESS_EMPTY'),
+      discoveryErrorMessage: discoverySummary.discoveryErrorMessage,
+      sourceReports: discoverySummary.sourceReports,
       audited: auditedCount,
       leadsScored: leadsScoredCount,
       qualifiedLeads: qualifiedCount,

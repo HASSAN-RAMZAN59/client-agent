@@ -229,7 +229,21 @@ campaignsRouter.post('/campaigns/:id/run', async (req: Request, res: Response) =
           sent: result.sentCount,
         });
 
-        await campaignRunService.completeRun(run.id, 'COMPLETED');
+        let finalStatus: 'COMPLETED' | 'PARTIAL_FAILURE' = 'COMPLETED';
+        let finalMessage: string | undefined = undefined;
+
+        if (result.discoveryOutcome === 'SOURCE_FAILURE') {
+          finalStatus = 'PARTIAL_FAILURE';
+          finalMessage = result.discoveryErrorMessage || 'All discovery sources failed or were blocked';
+        } else if (result.discoveryOutcome === 'SOURCE_PARTIAL_FAILURE' && result.discovered === 0) {
+          finalStatus = 'PARTIAL_FAILURE';
+          finalMessage = result.discoveryErrorMessage || 'Discovery sources partially failed with 0 items discovered';
+        } else if (result.discoveryOutcome === 'SUCCESS_EMPTY') {
+          finalStatus = 'COMPLETED';
+          finalMessage = 'No matching businesses found in public directory for this locality and niche';
+        }
+
+        await campaignRunService.completeRun(run.id, finalStatus, finalMessage);
       } catch (err: any) {
         log.error(`Campaign pipeline run failed for ${campaignId}`, { error: err?.message });
         await campaignRunService.completeRun(run.id, 'PARTIAL_FAILURE', err?.message);

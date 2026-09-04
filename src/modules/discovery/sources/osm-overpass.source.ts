@@ -1,9 +1,10 @@
 import { DiscoverySource, DiscoverySourceType, SourceMetrics } from '../discovery-source.interface.js';
-import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus } from '../../../types/index.js';
+import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus, DiscoverySourceOutcome } from '../../../types/index.js';
 import { normalizeBusinessName, normalizePhone, normalizeUrl } from '../normalizer.js';
 import { calculateOfficialWebsiteConfidence } from '../website-verifier.js';
 import { getMarketProfile } from '../../../config/markets.js';
 import { safetyControls, SafetyControls } from '../../../config/safety.js';
+import { LocationResolver, locationResolver as defaultLocationResolver } from '../location/location-resolver.js';
 import { safeSleep } from '../../../utils/sleeper.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -31,6 +32,7 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
   public enabled: boolean;
   public priority: number = 1;
   public status: SourceStatus = 'AVAILABLE';
+  private outcome: DiscoverySourceOutcome = 'SUCCESS_EMPTY';
 
   private metrics: SourceMetrics = {
     requestsCount: 0,
@@ -43,12 +45,18 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
   // Concurrency guard to enforce sequential execution (concurrency = 1)
   private isExecuting: boolean = false;
   private log = logger.child('OsmOverpassSource');
+  private locationResolver: LocationResolver;
 
-  constructor(customPolicy?: ReturnType<typeof safetyControls.getPolicy>) {
+  constructor(
+    customPolicy?: ReturnType<typeof safetyControls.getPolicy>,
+    customLocationResolver?: LocationResolver
+  ) {
     const policy = customPolicy || SafetyControls.getInstance().getPolicy();
     this.enabled = policy.discoveryOsmEnabled;
+    this.locationResolver = customLocationResolver || defaultLocationResolver;
     if (!this.enabled) {
       this.status = 'DISABLED';
+      this.outcome = 'DISABLED';
     }
   }
 
@@ -56,14 +64,20 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
     return this.enabled && this.status === 'AVAILABLE';
   }
 
+  public getOutcome(): DiscoverySourceOutcome {
+    return this.outcome;
+  }
+
   public markBlocked(reason: string, status: 'BLOCKED' | 'RATE_LIMITED' | 'ERROR' = 'BLOCKED'): void {
     this.status = status;
+    this.outcome = status === 'RATE_LIMITED' ? 'RATE_LIMITED' : 'BLOCKED';
     this.metrics.blockedCount++;
     this.log.warn(`Source ${this.name} deactivated for current run: ${reason} (Status: ${status})`);
   }
 
   public resetStatus(): void {
     this.status = this.enabled ? 'AVAILABLE' : 'DISABLED';
+    this.outcome = this.enabled ? 'SUCCESS_EMPTY' : 'DISABLED';
   }
 
   public getMetrics(): Readonly<SourceMetrics> {
@@ -78,6 +92,7 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
       blockedCount: 0,
       itemsDiscovered: 0,
     };
+    this.outcome = this.enabled ? 'SUCCESS_EMPTY' : 'DISABLED';
   }
 
   private mapNicheToOsmTags(niche: string, country?: string): string[] {
@@ -139,8 +154,14 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
   }
 
   public async discover(query: BusinessDiscoveryQuery): Promise<DiscoveredBusinessInput[]> {
+    if (!this.enabled) {
+      this.outcome = 'DISABLED';
+      return [];
+    }
+
     if (!this.isAvailable()) {
       this.log.debug(`Source ${this.name} is currently ${this.status}. Skipping.`);
+      this.outcome = 'SKIPPED';
       return [];
     }
 
@@ -149,6 +170,7 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
 
     if (this.metrics.requestsCount >= sourceBudget) {
       this.log.warn(`Source ${this.name} reached SOURCE_MAX_REQUESTS_PER_RUN budget (${sourceBudget}). Skipping further requests.`);
+      this.outcome = 'SKIPPED';
       return [];
     }
 
@@ -161,30 +183,82 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
     try {
       const limit = query.limit || 10;
       const market = getMarketProfile(query.country);
+
+      // 1. Dynamic Generic Location Resolution (4-tier hierarchy)
+      const resolvedLocation = await this.locationResolver.resolveLocation({
+        city: query.city,
+        stateOrProvince: query.state,
+        country: query.country,
+      });
+
+      if (resolvedLocation.status === 'RATE_LIMITED') {
+        this.markBlocked('Overpass API rate limit (429)', 'RATE_LIMITED');
+        this.metrics.failedCount++;
+        return [];
+      }
+
+      if (resolvedLocation.status === 'BLOCKED') {
+        this.markBlocked('Overpass API forbidden (403)', 'BLOCKED');
+        this.metrics.failedCount++;
+        return [];
+      }
+
+      if (resolvedLocation.status === 'LOCATION_RESOLUTION_FAILED') {
+        this.log.warn(`Location resolution failed for city="${query.city}", country="${query.country || 'N/A'}"`);
+        this.outcome = 'LOCATION_RESOLUTION_FAILED';
+        this.metrics.failedCount++;
+        return [];
+      }
+
+      if (resolvedLocation.status === 'LOCATION_AMBIGUOUS') {
+        this.log.warn(`Location ambiguous for city="${query.city}". Multiple matches across distinct states/countries.`);
+        this.outcome = 'LOCATION_AMBIGUOUS';
+        this.metrics.failedCount++;
+        return [];
+      }
+
+      // 2. Build Overpass query based on resolved geometry (Administrative Area vs Center Radius)
       const tagFilters = this.mapNicheToOsmTags(query.niche, query.country);
+      let overpassQuery: string;
 
-      const filterUnion = tagFilters
-        .map((tag) => `node${tag}(area.searchArea);\n  way${tag}(area.searchArea);\n  relation${tag}(area.searchArea);`)
-        .join('\n  ');
+      if (resolvedLocation.resolutionType === 'ADMINISTRATIVE_AREA' && resolvedLocation.areaName) {
+        const filterUnion = tagFilters
+          .map((tag) => `node${tag}(area.searchArea);\n  way${tag}(area.searchArea);\n  relation${tag}(area.searchArea);`)
+          .join('\n  ');
 
-      const adminLevel = market.overpassAreaAdminLevel || '^[4-8]$';
-      const city = query.city.trim();
-
-      const overpassQuery = `
+        overpassQuery = `
 [out:json][timeout:15];
-area["name"="${city}"]["admin_level"~"${adminLevel}"]->.searchArea;
+area["name"="${resolvedLocation.areaName}"]->.searchArea;
 (
   ${filterUnion}
 );
 out center ${limit * 3};
 `.trim();
+      } else if (resolvedLocation.resolutionType === 'CENTER_RADIUS' && resolvedLocation.center) {
+        const { lat, lon } = resolvedLocation.center;
+        const radiusMeters = resolvedLocation.radiusMeters;
+        const filterUnion = tagFilters
+          .map((tag) => `node${tag}(around:${radiusMeters},${lat},${lon});\n  way${tag}(around:${radiusMeters},${lat},${lon});\n  relation${tag}(around:${radiusMeters},${lat},${lon});`)
+          .join('\n  ');
 
-      this.log.info(`Querying OpenStreetMap Overpass with User-Agent: "${policy.discoveryUserAgent}" for niche="${query.niche}", city="${query.city}" (${market.countryCode})`);
+        overpassQuery = `
+[out:json][timeout:15];
+(
+  ${filterUnion}
+);
+out center ${limit * 3};
+`.trim();
+      } else {
+        this.outcome = 'LOCATION_RESOLUTION_FAILED';
+        return [];
+      }
+
+      this.log.info(`Querying OpenStreetMap Overpass for niche="${query.niche}", resolved="${resolvedLocation.city}" (${resolvedLocation.resolutionType}, ${market.countryCode})`);
 
       let rawData: OverpassResponse | null = null;
       let lastError: Error | null = null;
-
       let lastStatus = 200;
+
       // Try Overpass endpoints with fallback
       for (const endpoint of OVERPASS_ENDPOINTS) {
         if (this.metrics.requestsCount >= sourceBudget) break;
@@ -231,15 +305,20 @@ out center ${limit * 3};
       if (!rawData || !rawData.elements || !Array.isArray(rawData.elements)) {
         if (lastStatus === 429) {
           this.markBlocked('Overpass API rate limit (429)', 'RATE_LIMITED');
+          this.outcome = 'RATE_LIMITED';
           this.metrics.failedCount++;
         } else if (lastStatus === 403) {
           this.markBlocked('Overpass API forbidden (403)', 'BLOCKED');
+          this.outcome = 'BLOCKED';
           this.metrics.failedCount++;
         } else if (lastError) {
           this.metrics.failedCount++;
-          this.log.warn(`All OpenStreetMap Overpass endpoints failed or returned empty: ${lastError?.message || 'Empty'}`);
+          const isTimeout = lastError.message.toLowerCase().includes('timeout') || lastError.message.toLowerCase().includes('abort');
+          this.outcome = isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR';
+          this.log.warn(`All OpenStreetMap Overpass endpoints failed: ${lastError.message}`);
         } else {
           this.metrics.successfulCount++;
+          this.outcome = 'SUCCESS_EMPTY';
         }
         return [];
       }
@@ -301,7 +380,8 @@ out center ${limit * 3};
       }
 
       this.metrics.itemsDiscovered += results.length;
-      this.log.info(`OpenStreetMap Overpass discovered ${results.length} valid businesses.`);
+      this.outcome = results.length > 0 ? 'SUCCESS_WITH_RESULTS' : 'SUCCESS_EMPTY';
+      this.log.info(`OpenStreetMap Overpass discovered ${results.length} valid businesses (Outcome: ${this.outcome}).`);
 
       await safeSleep(policy.sourceMinDelayMs);
       return results;
@@ -310,6 +390,7 @@ out center ${limit * 3};
       this.log.warn(`OpenStreetMap Overpass request failed: ${msg}`);
       this.metrics.failedCount++;
       this.status = 'ERROR';
+      this.outcome = 'QUERY_ERROR';
       return [];
     } finally {
       this.isExecuting = false;

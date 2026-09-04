@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import { DiscoverySource, DiscoverySourceType, SourceMetrics } from '../discovery-source.interface.js';
-import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus } from '../../../types/index.js';
+import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus, DiscoverySourceOutcome } from '../../../types/index.js';
 import { normalizeBusinessName, normalizeUrl, normalizePhone, cleanSearchTitleToBusinessName } from '../normalizer.js';
 import { calculateOfficialWebsiteConfidence } from '../website-verifier.js';
 import { isExcludedDirectoryDomain } from '../excluded-domains.js';
@@ -16,6 +16,7 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
   public enabled: boolean;
   public priority: number = 2;
   public status: SourceStatus = 'AVAILABLE';
+  private outcome: DiscoverySourceOutcome = 'SUCCESS_EMPTY';
 
   private metrics: SourceMetrics = {
     requestsCount: 0,
@@ -33,6 +34,7 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
     this.enabled = policy.discoveryDdgEnabled;
     if (!this.enabled) {
       this.status = 'DISABLED';
+      this.outcome = 'DISABLED';
     }
   }
 
@@ -40,14 +42,20 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
     return this.enabled && this.status === 'AVAILABLE';
   }
 
+  public getOutcome(): DiscoverySourceOutcome {
+    return this.outcome;
+  }
+
   public markBlocked(reason: string, status: 'BLOCKED' | 'RATE_LIMITED' | 'ERROR' = 'BLOCKED'): void {
     this.status = status;
+    this.outcome = status === 'RATE_LIMITED' ? 'RATE_LIMITED' : 'BLOCKED';
     this.metrics.blockedCount++;
     this.log.warn(`Source ${this.name} deactivated for current run: ${reason} (Status: ${status})`);
   }
 
   public resetStatus(): void {
     this.status = this.enabled ? 'AVAILABLE' : 'DISABLED';
+    this.outcome = this.enabled ? 'SUCCESS_EMPTY' : 'DISABLED';
   }
 
   public getMetrics(): Readonly<SourceMetrics> {
@@ -62,6 +70,7 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
       blockedCount: 0,
       itemsDiscovered: 0,
     };
+    this.outcome = this.enabled ? 'SUCCESS_EMPTY' : 'DISABLED';
   }
 
   private cleanTitleToBusinessName(title: string, niche: string, city: string): string {
@@ -266,14 +275,24 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
       }
 
       this.metrics.itemsDiscovered += discoveredResults.length;
-      this.log.info(`Public Search discovered total ${discoveredResults.length} valid business candidates.`);
+      if (this.status === 'BLOCKED') {
+        this.outcome = 'BLOCKED';
+      } else if (discoveredResults.length > 0) {
+        this.outcome = 'SUCCESS_WITH_RESULTS';
+      } else if (this.metrics.failedCount > 0 && this.metrics.successfulCount === 0) {
+        this.outcome = 'NETWORK_ERROR';
+      } else {
+        this.outcome = 'SUCCESS_EMPTY';
+      }
 
+      this.log.info(`Public Search discovered total ${discoveredResults.length} valid business candidates (Outcome: ${this.outcome}).`);
       return discoveredResults;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log.warn(`Public Search process failed: ${msg}`);
       this.metrics.failedCount++;
       this.status = 'ERROR';
+      this.outcome = 'QUERY_ERROR';
       return [];
     } finally {
       this.isExecuting = false;

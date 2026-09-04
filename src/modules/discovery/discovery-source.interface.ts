@@ -2,6 +2,7 @@ import {
   BusinessDiscoveryQuery,
   DiscoveredBusinessInput,
   SourceStatus,
+  DiscoverySourceOutcome,
 } from '../../types/index.js';
 
 export type DiscoverySourceType =
@@ -31,6 +32,8 @@ export interface DiscoverySource {
 
   getMetrics(): Readonly<SourceMetrics>;
   resetMetrics(): void;
+
+  getOutcome?(): DiscoverySourceOutcome;
 
   discover(query: BusinessDiscoveryQuery): Promise<DiscoveredBusinessInput[]>;
 }
