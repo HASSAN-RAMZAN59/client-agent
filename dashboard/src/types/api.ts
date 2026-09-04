@@ -18,8 +18,14 @@ export interface SystemStatusSummary {
     leadsHot: number;
     leadsWarm: number;
     leadsCold: number;
+    emailContactable: number;
+    phoneContactable: number;
     pendingReview: number;
     approved: number;
+    readyToSend: number;
+    realSends: number;
+    replies: number;
+    positiveReplies: number;
     suppressed: number;
   };
   provider: {

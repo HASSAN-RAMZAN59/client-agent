@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../database/client.js';
 import { PipelineMetrics } from './analytics.interface.js';
 import { logger } from '../../utils/logger.js';
+import { TEST_BUSINESS_FILTER } from '../../database/test-exclusion.js';
 
 export class AnalyticsService {
   private db: PrismaClient;
@@ -27,17 +28,31 @@ export class AnalyticsService {
       totalReplies,
       positiveReplies,
     ] = await Promise.all([
-      this.db.business.count(),
-      this.db.websiteAudit.count(),
-      this.db.lead.count(),
-      this.db.lead.count({ where: { status: 'QUALIFIED' } }),
-      this.db.lead.count({ where: { status: 'DISQUALIFIED' } }),
-      this.db.contact.count(),
-      this.db.outreach.count({ where: { status: 'DRAFT' } }),
-      this.db.outreach.count({ where: { status: 'SENT' } }),
-      this.db.followUp.count(),
-      this.db.reply.count(),
-      this.db.reply.count({ where: { classification: 'POSITIVE_INTEREST' } }),
+      this.db.business.count({ where: TEST_BUSINESS_FILTER }),
+      this.db.websiteAudit.count({ where: { business: TEST_BUSINESS_FILTER } }),
+      this.db.lead.count({ where: { business: TEST_BUSINESS_FILTER } }),
+      this.db.lead.count({ where: { status: 'QUALIFIED', business: TEST_BUSINESS_FILTER } }),
+      this.db.lead.count({ where: { status: 'DISQUALIFIED', business: TEST_BUSINESS_FILTER } }),
+      this.db.contact.count({ where: { business: TEST_BUSINESS_FILTER } }),
+      this.db.outreach.count({ where: { status: 'DRAFT', lead: { business: TEST_BUSINESS_FILTER } } }),
+      process.env.NODE_ENV === 'test'
+        ? 0
+        : this.db.outreach.count({
+            where: {
+              status: 'SENT',
+              dryRun: false,
+              sentAt: { not: null },
+              lead: { business: TEST_BUSINESS_FILTER },
+            },
+          }),
+      this.db.followUp.count({ where: { outreach: { lead: { business: TEST_BUSINESS_FILTER } } } }),
+      this.db.reply.count({ where: { outreach: { lead: { business: TEST_BUSINESS_FILTER } } } }),
+      this.db.reply.count({
+        where: {
+          classification: 'POSITIVE',
+          outreach: { lead: { business: TEST_BUSINESS_FILTER } },
+        },
+      }),
     ]);
 
     const opportunityRatePct =

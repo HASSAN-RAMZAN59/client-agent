@@ -118,7 +118,7 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
         <div className="card">
           <div className="card-label">Email Contactable</div>
           <div className="card-value">
-            {analytics?.metrics.contactableLeads ?? counts.leadsTotal}
+            {counts.emailContactable ?? analytics?.metrics.contactableLeads ?? 0}
           </div>
           <div className="card-subtext">Verified public email</div>
         </div>
@@ -126,7 +126,7 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
         <div className="card">
           <div className="card-label">Phone Contactable</div>
           <div className="card-value">
-            {counts.businesses}
+            {counts.phoneContactable ?? 0}
           </div>
           <div className="card-subtext">Phone number available</div>
         </div>
@@ -136,7 +136,7 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
           <div className="card-value" style={{ color: '#38bdf8' }}>
             {counts.pendingReview}
           </div>
-          <div className="card-subtext">Awaiting operator sign-off</div>
+          <div className="card-subtext">Unique businesses awaiting sign-off</div>
         </div>
 
         <div className="card">
@@ -144,13 +144,13 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
           <div className="card-value" style={{ color: '#34d399' }}>
             {counts.approved}
           </div>
-          <div className="card-subtext">Human reviewed</div>
+          <div className="card-subtext">Selected outreach drafts</div>
         </div>
 
         <div className="card">
           <div className="card-label">Ready To Send</div>
           <div className="card-value" style={{ color: '#c084fc' }}>
-            {counts.approved}
+            {counts.readyToSend ?? counts.approved}
           </div>
           <div className="card-subtext">Frozen pilot candidates</div>
         </div>
@@ -158,7 +158,7 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
         <div className="card">
           <div className="card-label">Real Sends</div>
           <div className="card-value">
-            {analytics?.metrics.realOutreachSent ?? 0}
+            {counts.realSends ?? analytics?.metrics.realOutreachSent ?? 0}
           </div>
           <div className="card-subtext">Network dispatches (0)</div>
         </div>
@@ -166,7 +166,7 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
         <div className="card">
           <div className="card-label">Replies Received</div>
           <div className="card-value">
-            {analytics?.metrics.repliesReceived ?? 0}
+            {counts.replies ?? analytics?.metrics.repliesReceived ?? 0}
           </div>
           <div className="card-subtext">Inbound responses</div>
         </div>
@@ -174,7 +174,7 @@ export const OverviewPage: React.FC<{ onNavigate: (page: any) => void }> = ({ on
         <div className="card">
           <div className="card-label">Positive Replies</div>
           <div className="card-value" style={{ color: '#34d399' }}>
-            {analytics?.metrics.positiveReplies ?? 0}
+            {counts.positiveReplies ?? analytics?.metrics.positiveReplies ?? 0}
           </div>
           <div className="card-subtext">Interested prospects</div>
         </div>

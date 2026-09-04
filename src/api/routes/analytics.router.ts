@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../database/client.js';
 import { analyticsService } from '../../services/index.js';
 import { logger } from '../../utils/logger.js';
+import { TEST_BUSINESS_FILTER } from '../../database/test-exclusion.js';
 
 export const analyticsRouter = Router();
 const log = logger.child('AnalyticsRouter');
@@ -20,26 +21,86 @@ analyticsRouter.get('/analytics', async (_req: Request, res: Response) => {
       hotCount,
       warmCount,
       emailContactableCount,
+      phoneContactableCount,
+      pendingReviewCount,
       reviewedCount,
       approvedCount,
       negativeReplies,
       unsubscribes,
     ] = await Promise.all([
-      db.lead.count({ where: { classification: 'HOT' } }),
-      db.lead.count({ where: { classification: 'WARM' } }),
-      db.contact.count({ where: { type: 'EMAIL', isVerified: true } }),
-      db.outreach.count({
+      db.lead.count({ where: { classification: 'HOT', business: TEST_BUSINESS_FILTER } }),
+      db.lead.count({ where: { classification: 'WARM', business: TEST_BUSINESS_FILTER } }),
+      db.business.count({
         where: {
-          status: { in: ['REVIEW_REQUIRED', 'APPROVED', 'READY_TO_SEND', 'REJECTED'] },
+          ...TEST_BUSINESS_FILTER,
+          contacts: {
+            some: {
+              type: 'EMAIL',
+              isVerified: true,
+              value: { not: '' },
+            },
+          },
         },
       }),
-      db.outreach.count({
+      db.business.count({
         where: {
-          status: { in: ['APPROVED', 'READY_TO_SEND'] },
+          ...TEST_BUSINESS_FILTER,
+          contacts: {
+            some: {
+              type: 'PHONE',
+              value: { not: '' },
+            },
+          },
         },
       }),
-      db.reply.count({ where: { classification: 'NEGATIVE' } }),
-      db.reply.count({ where: { classification: 'UNSUBSCRIBE' } }),
+      db.business.count({
+        where: {
+          ...TEST_BUSINESS_FILTER,
+          lead: {
+            outreach: {
+              some: {
+                status: 'REVIEW_REQUIRED',
+              },
+            },
+          },
+        },
+      }),
+      db.business.count({
+        where: {
+          ...TEST_BUSINESS_FILTER,
+          lead: {
+            outreach: {
+              some: {
+                status: { in: ['REVIEW_REQUIRED', 'APPROVED', 'READY_TO_SEND', 'REJECTED'] },
+              },
+            },
+          },
+        },
+      }),
+      db.business.count({
+        where: {
+          ...TEST_BUSINESS_FILTER,
+          lead: {
+            outreach: {
+              some: {
+                status: { in: ['APPROVED', 'READY_TO_SEND'] },
+              },
+            },
+          },
+        },
+      }),
+      db.reply.count({
+        where: {
+          classification: 'NEGATIVE',
+          outreach: { lead: { business: TEST_BUSINESS_FILTER } },
+        },
+      }),
+      db.reply.count({
+        where: {
+          classification: 'UNSUBSCRIBE',
+          outreach: { lead: { business: TEST_BUSINESS_FILTER } },
+        },
+      }),
     ]);
 
     const realSentCount =
@@ -50,15 +111,7 @@ analyticsRouter.get('/analytics', async (_req: Request, res: Response) => {
               dryRun: false,
               status: 'SENT',
               sentAt: { not: null },
-              lead: {
-                business: {
-                  NOT: [
-                    { source: { startsWith: 'test' } },
-                    { source: 'TEST_SUITE' },
-                    { name: { startsWith: 'Test' } },
-                  ],
-                },
-              },
+              lead: { business: TEST_BUSINESS_FILTER },
             },
           });
 
@@ -110,6 +163,8 @@ analyticsRouter.get('/analytics', async (_req: Request, res: Response) => {
           hotLeads: hotCount,
           warmLeads: warmCount,
           contactableLeads: contactable,
+          phoneContactableLeads: phoneContactableCount,
+          pendingReview: pendingReviewCount,
           reviewedOutreach: reviewed,
           approvedOutreach: approved,
           realOutreachSent: sent,
