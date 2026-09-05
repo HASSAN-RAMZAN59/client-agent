@@ -10,6 +10,7 @@ import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email
 import { ContentHasher } from '../../personalization/hardening/content-hasher.js';
 import { SmtpDeliveryProvider } from '../execution/smtp-delivery.provider.js';
 import { validateBusinessIdentity } from '../../discovery/identity-validator.js';
+import { normalizeNiche } from '../../discovery/niche-normalizer.js';
 
 const PROHIBITED_FEAR_PATTERNS = [
   /losing\s+(revenue|money|thousands|millions)/i,
@@ -674,33 +675,43 @@ export class PreSendValidator {
 
   public isNicheMatch(businessCategory: string, campaignNiche: string): boolean {
     if (!businessCategory || !campaignNiche) return false;
-    const targetNiches = campaignNiche.split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
-    const cat = businessCategory.toLowerCase().trim();
+    const targetNiches = campaignNiche.split(',').map((n) => n.trim()).filter(Boolean);
+    const cat = businessCategory.trim();
+    const catNorm = normalizeNiche(cat);
 
     for (const target of targetNiches) {
-      if (target === 'dentist' || target === 'dental') {
+      const targetNorm = normalizeNiche(target);
+      if (targetNorm.isValid && catNorm.isValid && targetNorm.canonical !== 'UNKNOWN' && targetNorm.canonical === catNorm.canonical) {
+        return true;
+      }
+      const lowerTarget = target.toLowerCase();
+      const lowerCat = cat.toLowerCase();
+      if (lowerTarget === 'dentist' || lowerTarget === 'dental' || targetNorm.canonical === 'DENTIST') {
         if (
-          cat.includes('dent') ||
-          cat.includes('orthodont') ||
-          cat.includes('endodont') ||
-          cat.includes('periodont') ||
-          cat.includes('oral')
+          lowerCat.includes('dent') ||
+          lowerCat.includes('orthodont') ||
+          lowerCat.includes('endodont') ||
+          lowerCat.includes('periodont') ||
+          lowerCat.includes('oral')
         ) {
           return true;
         }
-      } else if (target === 'hvac' || target === 'heating' || target === 'air conditioning') {
+      } else if (lowerTarget === 'hvac' || lowerTarget === 'heating' || lowerTarget === 'air conditioning' || targetNorm.canonical === 'HVAC') {
         if (
-          cat.includes('hvac') ||
-          cat.includes('air condition') ||
-          cat.includes('heating') ||
-          cat.includes('cooling') ||
-          cat.includes('furnace') ||
-          cat.includes('heat')
+          lowerCat.includes('hvac') ||
+          lowerCat.includes('air condition') ||
+          lowerCat.includes('heating') ||
+          lowerCat.includes('cooling') ||
+          lowerCat.includes('furnace') ||
+          lowerCat.includes('heat') ||
+          lowerCat.includes('ac repair') ||
+          /\bac\b/i.test(lowerCat) ||
+          targetNorm.aliases.some((a) => lowerCat.includes(a))
         ) {
           return true;
         }
       } else {
-        if (cat.includes(target) || target.includes(cat)) {
+        if (lowerCat.includes(lowerTarget) || lowerTarget.includes(lowerCat)) {
           return true;
         }
       }

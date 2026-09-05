@@ -12,6 +12,7 @@ import { MockFollowUpProvider } from '../modules/followups/mock-followup.provide
 import { logger } from '../utils/logger.js';
 import { safeSleep } from '../utils/sleeper.js';
 import { safetyControls } from '../config/safety.js';
+import { normalizeNiche } from '../modules/discovery/niche-normalizer.js';
 
 export interface PipelineExecutionOptions {
   niche?: string;
@@ -47,11 +48,13 @@ export class LeadPipelineService {
     draftsCreated: number;
     emailsSimulated: number;
   }> {
-    const niche = options.niche || 'Dentist';
+    const rawNiche = options.niche || 'Dentist';
+    const nicheDef = normalizeNiche(rawNiche);
+    const niche = nicheDef.primaryQueryTerm || rawNiche;
     const city = options.city || 'Austin';
     const limit = Math.min(options.limit || 5, safetyControls.getPolicy().maxItemsPerRun);
 
-    this.log.info(`--- Starting Lead Pipeline Execution (Niche: ${niche}, City: ${city}, DryRun: ${safetyControls.isDryRun()}) ---`);
+    this.log.info(`--- Starting Lead Pipeline Execution (Niche: ${nicheDef.label}, City: ${city}, DryRun: ${safetyControls.isDryRun()}) ---`);
 
     // 1. Business Discovery
     const businesses = await this.discoveryProvider.discover({

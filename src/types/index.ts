@@ -868,6 +868,9 @@ export interface CampaignRecord {
   state?: string | null;
   city: string;
   niche: string;
+  canonicalNiche?: string;
+  displayNiche?: string;
+  rawNiche?: string;
   targetBusinesses: number;
   minLeadScore: number;
   minContactQuality: number;
@@ -886,6 +889,8 @@ export interface CampaignInput {
   state?: string;
   city: string;
   niche: string;
+  canonicalNiche?: string;
+  rawNiche?: string;
   targetBusinesses?: number;
   minLeadScore?: number;
   minContactQuality?: number;

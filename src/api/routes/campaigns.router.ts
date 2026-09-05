@@ -8,6 +8,7 @@ import {
 } from '../../services/index.js';
 import { logger } from '../../utils/logger.js';
 import { SmtpDeliveryProvider } from '../../modules/outreach/execution/smtp-delivery.provider.js';
+import { normalizeNiche } from '../../modules/discovery/niche-normalizer.js';
 
 export const campaignsRouter = Router();
 const log = logger.child('CampaignsRouter');
@@ -45,6 +46,7 @@ campaignsRouter.get('/campaigns', async (req: Request, res: Response) => {
     const enriched = await Promise.all(
       rawCampaigns.map(async (c) => {
         const latestRun = await campaignRunService.getLatestRun(c.id);
+        const nicheDef = normalizeNiche(c.niche);
 
         return {
           id: c.id,
@@ -52,7 +54,9 @@ campaignsRouter.get('/campaigns', async (req: Request, res: Response) => {
           country: c.country,
           state: c.state || '',
           city: c.city,
-          niche: c.niche,
+          niche: nicheDef.label,
+          canonicalNiche: nicheDef.canonical,
+          displayNiche: nicheDef.label,
           status: c.status,
           targetBusinesses: c.targetBusinesses,
           minLeadScore: c.minLeadScore,
@@ -115,12 +119,18 @@ campaignsRouter.post('/campaigns', async (req: Request, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'Niche is required' });
     }
 
+    const nicheDef = normalizeNiche(niche);
+    if (!nicheDef.isValid) {
+      return res.status(400).json({ status: 'error', message: `Invalid niche: "${niche}"` });
+    }
+
     const campaign = await campaignService.createCampaign({
       name: name.trim(),
       country: (country || 'US').trim().toUpperCase(),
       state: state ? state.trim() : undefined,
       city: city.trim(),
-      niche: niche.trim(),
+      niche: nicheDef.canonical,
+      rawNiche: niche.trim(),
       targetBusinesses: Number(targetBusinesses) || 50,
       minLeadScore: Number(minScore) || 50,
       maxDiscoveryPerRun: Math.min(Number(targetBusinesses) || 50, 50),
@@ -133,7 +143,9 @@ campaignsRouter.post('/campaigns', async (req: Request, res: Response) => {
       metadata: {
         campaignName: campaign.name,
         city: campaign.city,
-        niche: campaign.niche,
+        niche: nicheDef.label,
+        canonicalNiche: nicheDef.canonical,
+        rawNiche: niche.trim(),
         targetBusinesses: campaign.targetBusinesses,
       },
     });
@@ -143,7 +155,13 @@ campaignsRouter.post('/campaigns', async (req: Request, res: Response) => {
     res.status(201).json({
       status: 'success',
       data: {
-        campaign,
+        campaign: {
+          ...campaign,
+          niche: nicheDef.label,
+          canonicalNiche: nicheDef.canonical,
+          displayNiche: nicheDef.label,
+          rawNiche: niche.trim(),
+        },
         safetyStatus: {
           dryRun: true,
           liveOutreachEnabled: false,
@@ -185,10 +203,17 @@ campaignsRouter.get('/campaigns/:id', async (req: Request, res: Response) => {
       activityLogService.getRecentEvents(20, { entityType: 'CAMPAIGN' }),
     ]);
 
+    const nicheDef = normalizeNiche(campaign.niche);
+
     res.json({
       status: 'success',
       data: {
-        campaign,
+        campaign: {
+          ...campaign,
+          niche: nicheDef.label,
+          canonicalNiche: nicheDef.canonical,
+          displayNiche: nicheDef.label,
+        },
         membersCount,
         latestRun,
         runs: allRuns,

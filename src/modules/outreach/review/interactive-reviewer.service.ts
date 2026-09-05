@@ -4,6 +4,7 @@ import { getPrismaClient } from '../../../database/client.js';
 import { createLogger } from '../../../utils/logger.js';
 import { preSendValidator } from '../gate/pre-send-validator.js';
 import { isStrictlyValidEmail } from '../../../utils/email-validator.js';
+import { normalizeNiche } from '../../discovery/niche-normalizer.js';
 
 export interface PilotReviewItemVariant {
   outreachId: string;
@@ -184,25 +185,32 @@ export class InteractiveReviewerService {
 
         // Niche check
         const allowedNiches = campaign.niche
-          ? campaign.niche.split(',').map((n: string) => n.trim().toLowerCase())
+          ? campaign.niche.split(',').map((n: string) => n.trim()).filter(Boolean)
           : [];
         const isNicheMatch = allowedNiches.some((n: string) => {
-          if (n === 'dentist' || n === 'dental') {
+          const targetNorm = normalizeNiche(n);
+          const bizNorm = normalizeNiche(b.category || '');
+          if (targetNorm.isValid && bizNorm.isValid && targetNorm.canonical !== 'UNKNOWN' && targetNorm.canonical === bizNorm.canonical) {
+            return true;
+          }
+          const lowerN = n.toLowerCase();
+          const lowerCat = (b.category || '').toLowerCase();
+          if (lowerN === 'dentist' || lowerN === 'dental' || targetNorm.canonical === 'DENTIST') {
             return (
-              b.category?.toLowerCase().includes('dent') ||
-              b.category?.toLowerCase().includes('orthodont') ||
-              b.category?.toLowerCase().includes('oral')
+              lowerCat.includes('dent') ||
+              lowerCat.includes('orthodont') ||
+              lowerCat.includes('oral')
             );
           }
-          if (n === 'hvac' || n === 'heating') {
+          if (lowerN === 'hvac' || lowerN === 'heating' || targetNorm.canonical === 'HVAC') {
             return (
-              b.category?.toLowerCase().includes('hvac') ||
-              b.category?.toLowerCase().includes('air condition') ||
-              b.category?.toLowerCase().includes('heating') ||
-              b.category?.toLowerCase().includes('heat')
+              lowerCat.includes('hvac') ||
+              lowerCat.includes('air condition') ||
+              lowerCat.includes('heating') ||
+              lowerCat.includes('heat')
             );
           }
-          return b.category?.toLowerCase().includes(n);
+          return lowerCat.includes(lowerN) || lowerN.includes(lowerCat);
         });
 
         if (!isNicheMatch) {

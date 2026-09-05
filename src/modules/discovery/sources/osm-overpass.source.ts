@@ -7,6 +7,7 @@ import { safetyControls, SafetyControls } from '../../../config/safety.js';
 import { LocationResolver, locationResolver as defaultLocationResolver } from '../location/location-resolver.js';
 import { safeSleep } from '../../../utils/sleeper.js';
 import { logger } from '../../../utils/logger.js';
+import { normalizeNiche } from '../niche-normalizer.js';
 
 interface OverpassElement {
   type: string;
@@ -96,61 +97,35 @@ export class OsmOverpassDiscoverySource implements DiscoverySource {
   }
 
   private mapNicheToOsmTags(niche: string, country?: string): string[] {
+    const nicheDef = normalizeNiche(niche);
     const market = getMarketProfile(country);
-    const lower = niche.toLowerCase().trim();
+    const marketKey = nicheDef.canonical.toLowerCase().replace(/_/g, '');
 
-    // Check market-specific mappings first
+    // 1. Check market-specific mappings using canonical key
+    if (market.nicheMappings[marketKey]) {
+      return market.nicheMappings[marketKey];
+    }
+
+    // 2. Check market mappings against primary term and aliases
     for (const [key, tags] of Object.entries(market.nicheMappings)) {
-      if (lower.includes(key) || key.includes(lower)) {
+      if (
+        nicheDef.primaryQueryTerm.includes(key) ||
+        key.includes(nicheDef.primaryQueryTerm) ||
+        nicheDef.aliases.some((a) => a.includes(key) || key.includes(a))
+      ) {
         return tags;
       }
     }
 
-    if (lower.includes('dentist') || lower.includes('dental')) {
-      return ['["amenity"="dentist"]', '["healthcare"="dentist"]'];
-    }
-    if (lower.includes('doctor') || lower.includes('clinic') || lower.includes('medical') || lower.includes('physician')) {
-      return ['["amenity"="doctors"]', '["amenity"="clinic"]', '["healthcare"="doctor"]'];
-    }
-    if (lower.includes('restaurant') || lower.includes('food') || lower.includes('diner') || lower.includes('eatery')) {
-      return ['["amenity"="restaurant"]', '["amenity"="cafe"]', '["amenity"="fast_food"]'];
-    }
-    if (lower.includes('cafe') || lower.includes('coffee') || lower.includes('bakery')) {
-      return ['["amenity"="cafe"]', '["shop"="bakery"]'];
-    }
-    if (lower.includes('plumb')) {
-      return ['["craft"="plumber"]', '["trade"="plumber"]'];
-    }
-    if (lower.includes('law') || lower.includes('legal') || lower.includes('attorney') || lower.includes('solicitor')) {
-      return ['["office"="lawyer"]', '["office"="legal"]'];
-    }
-    if (lower.includes('gym') || lower.includes('fitness') || lower.includes('crossfit')) {
-      return ['["leisure"="fitness_centre"]', '["leisure"="sports_centre"]'];
-    }
-    if (lower.includes('hvac') || lower.includes('air cond') || lower.includes('heating') || lower.includes('electric')) {
-      return ['["craft"="hvac"]', '["craft"="electrician"]', '["craft"="plumber"]'];
-    }
-    if (lower.includes('roof')) {
-      return ['["craft"="roofer"]', '["craft"="construction"]'];
-    }
-    if (lower.includes('auto') || lower.includes('car dealer') || lower.includes('dealership') || lower.includes('motor')) {
-      return ['["shop"="car"]', '["shop"="car_repair"]'];
-    }
-    if (lower.includes('real estate') || lower.includes('realtor') || lower.includes('property')) {
-      return ['["office"="estate_agent"]', '["office"="real_estate"]'];
-    }
-    if (lower.includes('salon') || lower.includes('barber') || lower.includes('hair') || lower.includes('spa')) {
-      return ['["shop"="hairdresser"]', '["shop"="beauty"]'];
-    }
-    if (lower.includes('clean')) {
-      return ['["craft"="cleaning"]', '["office"="cleaning"]'];
-    }
-    if (lower.includes('software') || lower.includes('it ') || lower.includes('tech') || lower.includes('web dev') || lower.includes('agency')) {
-      return ['["office"="it"]', '["office"="company"]', '["office"="telecommunication"]'];
+    // 3. Fallback to canonical niche's predefined OSM tags
+    if (nicheDef.osmTags && nicheDef.osmTags.length > 0 && nicheDef.canonical !== 'UNKNOWN') {
+      return nicheDef.osmTags;
     }
 
-    const clean = lower.replace(/[^a-z]/g, '');
-    return [`["amenity"="${clean}"]`, `["office"="${clean}"]`, `["craft"="${clean}"]`, `["shop"="${clean}"]`];
+    const clean = nicheDef.primaryQueryTerm.replace(/[^a-z0-9]/g, '');
+    return clean
+      ? [`["amenity"="${clean}"]`, `["office"="${clean}"]`, `["craft"="${clean}"]`, `["shop"="${clean}"]`]
+      : ['["amenity"]'];
   }
 
   public async discover(query: BusinessDiscoveryQuery): Promise<DiscoveredBusinessInput[]> {
@@ -253,7 +228,8 @@ out center ${limit * 3};
         return [];
       }
 
-      this.log.info(`Querying OpenStreetMap Overpass for niche="${query.niche}", resolved="${resolvedLocation.city}" (${resolvedLocation.resolutionType}, ${market.countryCode})`);
+      const nicheDef = normalizeNiche(query.niche);
+      this.log.info(`Querying OpenStreetMap Overpass for niche="${nicheDef.label}", resolved="${resolvedLocation.city}" (${resolvedLocation.resolutionType}, ${market.countryCode})`);
 
       let rawData: OverpassResponse | null = null;
       let lastError: Error | null = null;
@@ -354,7 +330,7 @@ out center ${limit * 3};
         results.push({
           name: normalizedName,
           rawName: el.tags?.name || normalizedName,
-          category: query.niche,
+          category: nicheDef.label,
           city: query.city,
           state,
           country: market.countryName,
@@ -366,7 +342,7 @@ out center ${limit * 3};
           website,
           source: 'osm_overpass',
           sourceUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
-          queryVariant: `${query.niche} in ${query.city}`,
+          queryVariant: `${nicheDef.primaryQueryTerm} in ${query.city}`,
           contactChannel: website ? 'WEBSITE_LEAD' : (phone ? 'PHONE_ONLY_LEAD' : 'NO_CONTACT_LEAD'),
           websiteSource: website ? 'osm_overpass' : undefined,
           phoneSource: phone ? 'osm_overpass' : undefined,

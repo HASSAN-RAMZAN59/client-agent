@@ -17,6 +17,7 @@ import { getMarketProfile } from '../../config/markets.js';
 import { safetyControls } from '../../config/safety.js';
 import { safeSleep } from '../../utils/sleeper.js';
 import { logger } from '../../utils/logger.js';
+import { normalizeNiche } from './niche-normalizer.js';
 
 export interface EnhancedDiscoveredBusiness extends DiscoveredBusinessInput {
   reachability?: WebsiteReachabilityResult;
@@ -94,10 +95,16 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
     const effectiveLimit = Math.min(requestedTarget, policy.maxItemsPerRun);
     const globalMaxRequests = policy.maxSourceRequestPerRun;
     const market = getMarketProfile(query.country);
+    const nicheDef = normalizeNiche(query.niche);
 
     if (requestedTarget > policy.maxItemsPerRun) {
       this.log.warn(`Requested limit ${requestedTarget} exceeds MAX_ITEMS_PER_RUN (${policy.maxItemsPerRun}). Clamping to ${effectiveLimit}.`);
     }
+
+    const normalizedQuery: BusinessDiscoveryQuery = {
+      ...query,
+      niche: nicheDef.primaryQueryTerm || query.niche,
+    };
 
     const blockedSources: string[] = [];
     const discoveredCandidates: DiscoveredBusinessInput[] = [];
@@ -122,7 +129,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
       try {
         const remainingNeeded = effectiveLimit - discoveredCandidates.length;
         const sourceResults = await source.discover({
-          ...query,
+          ...normalizedQuery,
           country: query.country || market.countryCode,
           limit: remainingNeeded,
         });
@@ -135,7 +142,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
 
           // 1. Enforce business identity safety
           const identityCheck = validateBusinessIdentity(candidate.name, {
-            niche: query.niche,
+            niche: nicheDef.label,
             city: candidate.city,
             country: candidate.country || market.countryName,
           });
@@ -355,7 +362,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
 
     return {
       market: `${query.city}${query.state ? `, ${query.state}` : ''}, ${market.countryName}`,
-      niche: query.niche,
+      niche: nicheDef.label,
       requested: requestedTarget,
       discovered: enhancedResults.length,
       rawDiscovered: rawDiscoveredCount,

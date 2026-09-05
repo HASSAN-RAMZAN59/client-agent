@@ -11,6 +11,7 @@ import { getMarketProfile } from '../../../config/markets.js';
 import { safetyControls, SafetyControls } from '../../../config/safety.js';
 import { safeSleep } from '../../../utils/sleeper.js';
 import { logger } from '../../../utils/logger.js';
+import { normalizeNiche } from '../niche-normalizer.js';
 
 export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
   public readonly name = 'DuckDuckGo_PublicSearch';
@@ -79,8 +80,17 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
     let clean = title.trim();
     // Remove common title suffixes and aggregator labels
     clean = clean.replace(/\s*[-–—|:]\s*(home|official site|welcome|reviews|facebook|yelp|instagram|linkedin|mapquest|yellowpages|bbb|about us|contact us|online booking|get quote).*$/i, '');
-    clean = clean.replace(new RegExp(`\\s*[-–—|:]\\s*${city}.*$`, 'i'), '');
-    clean = clean.replace(new RegExp(`\\s*[-–—|:]\\s*${niche}.*$`, 'i'), '');
+    const escapedCity = city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clean = clean.replace(new RegExp(`\\s*[-–—|:]\\s*${escapedCity}.*$`, 'i'), '');
+
+    const nicheDef = normalizeNiche(niche);
+    const terms = [nicheDef.primaryQueryTerm, ...nicheDef.aliases, nicheDef.label]
+      .filter(Boolean)
+      .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (terms.length > 0) {
+      clean = clean.replace(new RegExp(`\\s*[-–—|:]\\s*(?:${terms.join('|')}).*$`, 'i'), '');
+    }
+
     clean = clean.replace(/\s*\([^)]*\)$/, ''); // remove trailing parentheticals
     return normalizeBusinessName(clean);
   }
@@ -124,10 +134,11 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
     try {
       const limit = query.limit || 10;
       const market = getMarketProfile(query.country);
+      const nicheDef = normalizeNiche(query.niche);
 
-      // Generate structured query variants
+      // Generate structured query variants using canonical niche
       const queryVariants = generateDiscoveryQueries({
-        niche: query.niche,
+        niche: nicheDef.primaryQueryTerm || query.niche,
         city: query.city,
         country: query.country,
         state: query.state,
@@ -220,7 +231,7 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
             const titleCleanResult = cleanSearchTitleToBusinessName(rawTitle, {
               city: query.city,
               state: query.state,
-              niche: query.niche,
+              niche: nicheDef.label,
               country: market.countryName,
             });
             const businessName = titleCleanResult.cleanedName;
@@ -229,7 +240,7 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
 
             // Enforce BUSINESS_IDENTITY_UNSAFE gate
             const identityCheck = validateBusinessIdentity(businessName, {
-              niche: query.niche,
+              niche: nicheDef.label,
               city: query.city,
               country: market.countryName,
             });
@@ -261,7 +272,7 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
             discoveredResults.push({
               name: businessName,
               rawName: rawTitle,
-              category: query.niche,
+              category: nicheDef.label,
               city: query.city,
               state: query.state,
               country: market.countryName,

@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../client.js';
 import { CampaignInput, CampaignRecord, CampaignStatus } from '../../types/index.js';
 import { logger } from '../../utils/logger.js';
+import { normalizeNiche } from '../../modules/discovery/niche-normalizer.js';
 
 export class CampaignRepository {
   private db: PrismaClient;
@@ -11,14 +12,29 @@ export class CampaignRepository {
     this.db = customDb || getPrismaClient();
   }
 
+  private enrichCampaignRecord(record: any, rawInputNiche?: string): CampaignRecord {
+    const nicheDef = normalizeNiche(record.niche);
+    return {
+      ...record,
+      canonicalNiche: nicheDef.canonical,
+      displayNiche: nicheDef.label,
+      rawNiche: rawInputNiche || record.rawNiche,
+    } as CampaignRecord;
+  }
+
   public async createCampaign(input: CampaignInput): Promise<CampaignRecord> {
+    const nicheDef = normalizeNiche(input.niche);
+    const canonicalNiche = nicheDef.isValid && nicheDef.canonical !== 'UNKNOWN'
+      ? nicheDef.canonical
+      : input.niche.trim();
+
     const record = await this.db.campaign.create({
       data: {
         name: input.name.trim(),
         country: (input.country || 'US').toUpperCase(),
         state: input.state ? input.state.trim() : null,
         city: input.city.trim(),
-        niche: input.niche.trim(),
+        niche: canonicalNiche,
         targetBusinesses: input.targetBusinesses ?? 100,
         minLeadScore: input.minLeadScore ?? 60.0,
         minContactQuality: input.minContactQuality ?? 0.0,
@@ -30,22 +46,22 @@ export class CampaignRepository {
       },
     });
 
-    this.log.info(`Campaign created: "${record.name}" [${record.id}] (${record.city}, ${record.country} - ${record.niche})`);
-    return record as CampaignRecord;
+    this.log.info(`Campaign created: "${record.name}" [${record.id}] (${record.city}, ${record.country} - ${record.niche} [${nicheDef.label}])`);
+    return this.enrichCampaignRecord(record, input.niche);
   }
 
   public async getCampaignById(id: string): Promise<CampaignRecord | null> {
     const record = await this.db.campaign.findUnique({
       where: { id },
     });
-    return record as CampaignRecord | null;
+    return record ? this.enrichCampaignRecord(record) : null;
   }
 
   public async getCampaignByName(name: string): Promise<CampaignRecord | null> {
     const record = await this.db.campaign.findUnique({
       where: { name: name.trim() },
     });
-    return record as CampaignRecord | null;
+    return record ? this.enrichCampaignRecord(record) : null;
   }
 
   public async listCampaigns(status?: CampaignStatus): Promise<CampaignRecord[]> {
@@ -58,15 +74,20 @@ export class CampaignRepository {
       where,
       orderBy: { createdAt: 'desc' },
     });
-    return records as CampaignRecord[];
+    return records.map((r) => this.enrichCampaignRecord(r));
   }
 
   public async updateCampaign(id: string, data: Partial<CampaignRecord>): Promise<CampaignRecord> {
+    const updateData: any = { ...data };
+    if (data.niche) {
+      const nicheDef = normalizeNiche(data.niche);
+      updateData.niche = nicheDef.isValid && nicheDef.canonical !== 'UNKNOWN' ? nicheDef.canonical : data.niche.trim();
+    }
     const record = await this.db.campaign.update({
       where: { id },
-      data: data as any,
+      data: updateData,
     });
-    return record as CampaignRecord;
+    return this.enrichCampaignRecord(record);
   }
 
   public async assignBusinessesToCampaign(campaignId: string, businessIds: string[]): Promise<number> {

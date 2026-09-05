@@ -22,6 +22,7 @@ import {
 import { SourceReportItem } from '../discovery/web-search-discovery.provider.js';
 import { safetyControls } from '../../config/safety.js';
 import { logger } from '../../utils/logger.js';
+import { normalizeNiche } from '../discovery/niche-normalizer.js';
 
 export interface CampaignRunResult {
   campaignId: string;
@@ -119,7 +120,8 @@ export class CampaignService {
       policy.maxItemsPerRun
     );
 
-    this.log.info(`Executing pipeline for campaign "${campaign.name}" [${campaign.id}] (Target: ${campaign.city}, ${campaign.country} - ${campaign.niche}, Limit: ${maxItems})`);
+    const nicheDef = normalizeNiche(campaign.niche);
+    this.log.info(`Executing pipeline for campaign "${campaign.name}" [${campaign.id}] (Target: ${campaign.city}, ${campaign.country} - ${nicheDef.label}, Limit: ${maxItems})`);
 
     const discoveryProvider = options?.mock
       ? new MockBusinessDiscoveryProvider()
@@ -127,7 +129,7 @@ export class CampaignService {
 
     // 1. Discover
     const discoverySummary = await (discoveryProvider as any).discoverDetailed({
-      niche: campaign.niche,
+      niche: nicheDef.primaryQueryTerm || campaign.niche,
       city: campaign.city,
       country: campaign.country,
       state: campaign.state || undefined,

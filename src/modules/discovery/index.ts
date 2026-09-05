@@ -9,3 +9,4 @@ export * from './sources/osm-overpass.source.js';
 export * from './sources/duckduckgo-search.source.js';
 export * from './web-search-discovery.provider.js';
 export * from './mock-discovery.provider.js';
+export * from './niche-normalizer.js';

@@ -9,6 +9,7 @@ import { buildDetailedSalesAngle } from '../sales-angle.builder.js';
 import { OutreachQualityGuard } from '../quality-guard.js';
 import { config } from '../../../config/env.js';
 import { logger } from '../../../utils/logger.js';
+import { normalizeNiche } from '../../discovery/niche-normalizer.js';
 
 export class RuleBasedPersonalizationProvider implements PersonalizationProvider {
   public readonly name = 'RuleBasedPersonalizationProvider';
@@ -192,7 +193,10 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
       `Observation for ${businessName}`,
     ];
 
-    const isDental = Boolean(
+    const nicheDef = normalizeNiche(params.niche);
+    const displayNiche = (nicheDef.isValid ? nicheDef.label.toLowerCase() : params.niche.replace(/[^\w\s-]/g, '').trim()) || 'local';
+
+    const isDental = nicheDef.canonical === 'DENTIST' || Boolean(
       params.niche &&
       (params.niche.toLowerCase().includes('dent') ||
         params.niche.toLowerCase().includes('orthodont') ||
@@ -208,7 +212,7 @@ export class RuleBasedPersonalizationProvider implements PersonalizationProvider
     if (hasNoWebsite) {
       body = `${greeting}
 
-I was looking up ${params.niche} services in ${params.city} and couldn't identify an official website for ${businessName}.
+I was looking up ${displayNiche} services in ${params.city} and couldn't identify an official website for ${businessName}.
 
 I build clean, mobile-friendly websites that make it easy for local clients to find your services and get in touch.
 
@@ -259,7 +263,10 @@ ${signature}`;
       `Question for ${businessName}`,
     ];
 
-    const isDental = Boolean(
+    const nicheDef = normalizeNiche(params.niche);
+    const displayNiche = (nicheDef.isValid ? nicheDef.label.toLowerCase() : params.niche.replace(/[^\w\s-]/g, '').trim()) || 'local';
+
+    const isDental = nicheDef.canonical === 'DENTIST' || Boolean(
       params.niche &&
       (params.niche.toLowerCase().includes('dent') ||
         params.niche.toLowerCase().includes('orthodont') ||
@@ -275,7 +282,7 @@ ${signature}`;
     if (hasNoWebsite) {
       body = `${greeting}
 
-I hope your week is going well. I was researching local ${params.niche} practices in ${params.city} and couldn't identify an official website for ${businessName}.
+I hope your week is going well. I was researching local ${displayNiche} practices in ${params.city} and couldn't identify an official website for ${businessName}.
 
 Having a fast, simple online presence makes it much easier for new ${clientTerm} to check your hours, see services, and request appointments.
 
@@ -331,13 +338,16 @@ ${signature}`;
       `Notes on ${businessName}'s mobile performance`,
     ];
 
+    const nicheDef = normalizeNiche(params.niche);
+    const displayNiche = (nicheDef.isValid ? nicheDef.label.toLowerCase() : params.niche.replace(/[^\w\s-]/g, '').trim()) || 'local';
+
     const signature = this.formatSignature(sender);
 
     let body = '';
     if (hasNoWebsite) {
       body = `${greeting}
 
-I was conducting research on ${params.niche} providers in ${params.city} and couldn't identify an official website for ${businessName}.
+I was conducting research on ${displayNiche} providers in ${params.city} and couldn't identify an official website for ${businessName}.
 
 For local service businesses, having an accessible web presence is essential for:
  • Displaying clear service lists and contact details for smartphone searchers
@@ -357,7 +367,7 @@ ${signature}`;
 
       body = `${greeting}
 
-While reviewing websites for ${params.niche} practices in ${params.city}, I ran a technical inspection on ${businessName}'s site and noted a few specific items:
+While reviewing websites for ${displayNiche} practices in ${params.city}, I ran a technical inspection on ${businessName}'s site and noted a few specific items:
 
 ${evidenceBullets}
 

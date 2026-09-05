@@ -58,6 +58,7 @@ export const COUNTRY_MARKET_PROFILES: Record<string, CountryMarketProfile> = {
       salon: ['["shop"="hairdresser"]', '["shop"="beauty"]'],
       cleaning: ['["craft"="cleaning"]', '["office"="cleaning"]'],
       software: ['["office"="it"]', '["office"="company"]', '["office"="telecommunication"]'],
+      hardwarestore: ['["shop"="hardware"]', '["shop"="doityourself"]', '["shop"="trade"]'],
     },
   },
 
@@ -93,6 +94,7 @@ export const COUNTRY_MARKET_PROFILES: Record<string, CountryMarketProfile> = {
       salon: ['["shop"="hairdresser"]', '["shop"="beauty"]'],
       cleaning: ['["craft"="cleaning"]'],
       software: ['["office"="it"]', '["office"="company"]'],
+      hardwarestore: ['["shop"="hardware"]', '["shop"="doityourself"]'],
     },
   },
 
@@ -126,6 +128,7 @@ export const COUNTRY_MARKET_PROFILES: Record<string, CountryMarketProfile> = {
       salon: ['["shop"="hairdresser"]', '["shop"="beauty"]'],
       cleaning: ['["craft"="cleaning"]'],
       software: ['["office"="it"]', '["office"="company"]'],
+      hardwarestore: ['["shop"="hardware"]', '["shop"="doityourself"]'],
     },
   },
 
@@ -159,6 +162,7 @@ export const COUNTRY_MARKET_PROFILES: Record<string, CountryMarketProfile> = {
       salon: ['["shop"="hairdresser"]', '["shop"="beauty"]'],
       cleaning: ['["craft"="cleaning"]'],
       software: ['["office"="it"]', '["office"="company"]'],
+      hardwarestore: ['["shop"="hardware"]', '["shop"="doityourself"]'],
     },
   },
 
@@ -192,6 +196,7 @@ export const COUNTRY_MARKET_PROFILES: Record<string, CountryMarketProfile> = {
       salon: ['["shop"="hairdresser"]', '["shop"="beauty"]'],
       cleaning: ['["craft"="cleaning"]'],
       software: ['["office"="it"]', '["office"="company"]', '["office"="telecommunication"]'],
+      hardwarestore: ['["shop"="hardware"]', '["shop"="doityourself"]'],
     },
   },
 };

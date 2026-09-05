@@ -1,5 +1,6 @@
 import { getMarketProfile, normalizeCountry } from '../../config/markets.js';
 import { safetyControls } from '../../config/safety.js';
+import { normalizeNiche } from './niche-normalizer.js';
 
 export interface DiscoveryQueryVariant {
   query: string;
@@ -48,7 +49,7 @@ export function formatLocationVariants(city: string, state?: string, countryName
 
 /**
  * Generates structured, high-intent discovery query variants for public search fallback.
- * Produces natural search queries without over-restrictive quotes on multi-word localities.
+ * Normalizes niche to canonical form and expands into natural aliases without raw slashes or combined punctuation.
  */
 export function generateDiscoveryQueries(options: QueryGenerationOptions): DiscoveryQueryVariant[] {
   const policy = safetyControls.getPolicy();
@@ -58,8 +59,27 @@ export function generateDiscoveryQueries(options: QueryGenerationOptions): Disco
 
   const { name: countryName } = normalizeCountry(options.country);
   const city = options.city.trim();
-  const niche = options.niche.trim();
   const state = options.state?.trim();
+
+  // Canonical niche normalization: expands raw inputs into clean primary term & natural aliases
+  const rawClean = options.niche.trim();
+  const hasDelimiters = /[\/|,]/.test(rawClean);
+  const nicheDef = normalizeNiche(options.niche);
+
+  // If raw input has delimiters (e.g. "dental /dentist"), use canonical primary term
+  // If raw input is already a single clean string (e.g. "Dentist" or "HVAC"), preserve its exact text
+  const primaryAlias = hasDelimiters
+    ? nicheDef.primaryQueryTerm || 'business'
+    : rawClean;
+
+  const aliases = nicheDef.aliases.length > 0 ? nicheDef.aliases : [primaryAlias];
+  const distinctSecondaryAliases = aliases.filter(
+    (a) => a.toLowerCase() !== primaryAlias.toLowerCase()
+  );
+
+  const alias1 = distinctSecondaryAliases[0] || primaryAlias;
+  const alias2 = distinctSecondaryAliases[1] || alias1;
+  const alias3 = distinctSecondaryAliases[2] || alias2;
 
   const { cityOnly, cityState, cityCountry, cityStateCountry } = formatLocationVariants(
     city,
@@ -67,37 +87,67 @@ export function generateDiscoveryQueries(options: QueryGenerationOptions): Disco
     countryName
   );
 
-  // Structured query intent templates in priority order
+  // Structured query intent templates in priority order using clean natural aliases
   const candidates: Array<{ query: string; templateType: DiscoveryQueryVariant['templateType']; priority: number }> = [
-    // 1. Official website intent: e.g. "dentist" Dallas Texas official website
+    // 1. Official website intent (primary canonical alias)
     {
-      query: `"${niche}" ${cityState} official website`,
+      query: `"${primaryAlias}" ${cityState} official website`,
       templateType: 'OFFICIAL_WEBSITE',
       priority: 1,
     },
-    // 2. Direct contact intent: e.g. "dentist" Faisalabad Pakistan contact
+    // 2. Direct contact intent (primary canonical alias)
     {
-      query: `"${niche}" ${cityCountry} contact`,
+      query: `"${primaryAlias}" ${cityCountry} contact`,
       templateType: 'CONTACT',
       priority: 2,
     },
-    // 3. Appointment / Booking intent: e.g. "dentist" Toronto Ontario book appointment online
+    // 3. Appointment / Booking intent (expanded with secondary natural alias)
     {
-      query: `"${niche}" ${cityState} book appointment online`,
+      query: `"${alias1}" ${cityState} book appointment online`,
       templateType: 'BOOKING',
       priority: 3,
     },
-    // 4. Quote / Services intent: e.g. "dentist" Sydney NSW quote estimate
+    // 4. Quote / Services intent (expanded with tertiary natural alias)
     {
-      query: `"${niche}" ${cityState} get quote estimate`,
+      query: `"${alias2}" ${cityState} get quote estimate`,
       templateType: 'QUOTE',
       priority: 4,
     },
-    // 5. Clean local business query: e.g. "dentist" in Dallas Texas / Faisalabad Punjab Pakistan
+    // 5. Clean local business query (expanded with natural alias)
     {
-      query: `"${niche}" in ${cityStateCountry}`,
+      query: `"${alias1}" in ${cityStateCountry}`,
       templateType: 'LOCATION_NICHE',
       priority: 5,
+    },
+    // 6. Secondary alias official website intent
+    {
+      query: `"${alias1}" ${cityState} official website`,
+      templateType: 'OFFICIAL_WEBSITE',
+      priority: 6,
+    },
+    // 7. Secondary alias contact query
+    {
+      query: `"${primaryAlias}" ${cityCountry} contact`,
+      templateType: 'CONTACT',
+      priority: 7,
+    },
+    // 8. Tertiary alias local query
+    {
+      query: `"${alias3}" in ${cityStateCountry}`,
+      templateType: 'LOCATION_NICHE',
+      priority: 8,
+    },
+    // 9. Secondary alias in city country
+    {
+      query: `"${alias2}" in ${cityCountry}`,
+      templateType: 'LOCATION_NICHE',
+      priority: 9,
+    },
+    // 10. Quaternary alias services query
+    {
+      query: `"${alias3}" ${cityState} services`,
+      templateType: 'QUOTE',
+      priority: 10,
     },
   ];
 
