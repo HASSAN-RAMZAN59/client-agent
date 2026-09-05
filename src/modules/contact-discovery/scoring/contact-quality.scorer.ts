@@ -10,6 +10,10 @@ export function calculateContactQualityScore(contact: {
   classification: ContactClassification;
   sourceType: ContactSourceType;
 }): number {
+  if (contact.classification === 'PLATFORM_CONTACT') {
+    return 0;
+  }
+
   if (contact.sourceType === 'OFFICIAL_WEBSITE') {
     if (contact.type === 'EMAIL') {
       if (contact.classification === 'BUSINESS_GENERIC') return 100;
@@ -32,7 +36,9 @@ export function calculateContactQualityScore(contact: {
 export function selectPrimaryContact(
   contacts: DiscoveredContactRecord[]
 ): DiscoveredContactRecord | undefined {
-  if (contacts.length === 0) return undefined;
+  // Never select a PLATFORM_CONTACT as primary contact for business outreach
+  const eligible = contacts.filter((c) => c.classification !== 'PLATFORM_CONTACT');
+  if (eligible.length === 0) return undefined;
 
   // Sorting priority:
   // 1. OFFICIAL_WEBSITE EMAIL (GENERIC > DEPARTMENT > NAMED > UNKNOWN)
@@ -61,6 +67,6 @@ export function selectPrimaryContact(
     return 100;
   };
 
-  const sorted = [...contacts].sort((a, b) => getRank(a) - getRank(b));
+  const sorted = [...eligible].sort((a, b) => getRank(a) - getRank(b));
   return sorted[0];
 }

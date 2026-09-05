@@ -11,6 +11,8 @@ import {
   ContactDiscoveryStatus,
   ContactSourceType,
 } from '../../types/index.js';
+import { isExcludedDirectoryDomain } from '../discovery/excluded-domains.js';
+import { classifyWebsite } from '../discovery/website-classifier.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
 import { safeSleep } from '../../utils/sleeper.js';
@@ -71,61 +73,68 @@ export class ContactDiscoveryService {
 
     // 2. Official Website Crawling (Homepage + Max Configured Sub-pages)
     if (business.website && business.website.trim().length > 0) {
-      const targetWebsite = business.website.startsWith('http')
-        ? business.website
-        : `https://${business.website}`;
+      const siteClassification = classifyWebsite(business.website, business.name, business.city);
+      if (siteClassification.type !== 'OFFICIAL_BUSINESS_SITE') {
+        this.log.info(
+          `Skipping contact crawl for ${business.website}: classified as ${siteClassification.type}, not an official business site.`
+        );
+      } else {
+        const targetWebsite = business.website.startsWith('http')
+          ? business.website
+          : `https://${business.website}`;
 
-      try {
-        this.log.info(`Discovering contacts from official website: ${targetWebsite}`);
-        const homeRes = await this.fetchHtmlSafe(targetWebsite);
-        pagesVisited.push(targetWebsite);
+        try {
+          this.log.info(`Discovering contacts from official website: ${targetWebsite}`);
+          const homeRes = await this.fetchHtmlSafe(targetWebsite);
+          pagesVisited.push(targetWebsite);
 
-        if (homeRes.status === 'BLOCKED') {
-          this.log.warn(`Website ${targetWebsite} returned blocked/challenge response.`);
-          if (discoveredContacts.size === 0) overallStatus = 'BLOCKED';
-        } else if (homeRes.html) {
-          // Extract from Homepage
-          this.extractAndAccumulate(homeRes.html, targetWebsite, 'OFFICIAL_WEBSITE', discoveredContacts);
+          if (homeRes.status === 'BLOCKED') {
+            this.log.warn(`Website ${targetWebsite} returned blocked/challenge response.`);
+            if (discoveredContacts.size === 0) overallStatus = 'BLOCKED';
+          } else if (homeRes.html) {
+            // Extract from Homepage
+            this.extractAndAccumulate(homeRes.html, targetWebsite, 'OFFICIAL_WEBSITE', discoveredContacts);
 
-          // Detect Contact / About / Booking sub-pages (capped at MAX_CONTACT_PAGES_PER_BUSINESS)
-          const subPages = detectContactPages(
-            homeRes.html,
-            targetWebsite,
-            config.MAX_CONTACT_PAGES_PER_BUSINESS
-          );
+            // Detect Contact / About / Booking sub-pages (capped at MAX_CONTACT_PAGES_PER_BUSINESS)
+            const subPages = detectContactPages(
+              homeRes.html,
+              targetWebsite,
+              config.MAX_CONTACT_PAGES_PER_BUSINESS
+            );
 
-          for (const subPage of subPages) {
-            await safeSleep(config.CONTACT_MIN_DELAY_MS);
-            this.log.debug(`Inspecting contact sub-page: ${subPage.url} (${subPage.type})`);
-            const subRes = await this.fetchHtmlSafe(subPage.url);
-            pagesVisited.push(subPage.url);
+            for (const subPage of subPages) {
+              await safeSleep(config.CONTACT_MIN_DELAY_MS);
+              this.log.debug(`Inspecting contact sub-page: ${subPage.url} (${subPage.type})`);
+              const subRes = await this.fetchHtmlSafe(subPage.url);
+              pagesVisited.push(subPage.url);
 
-            if (subRes.html) {
-              this.extractAndAccumulate(subRes.html, subPage.url, 'OFFICIAL_WEBSITE', discoveredContacts);
+              if (subRes.html) {
+                this.extractAndAccumulate(subRes.html, subPage.url, 'OFFICIAL_WEBSITE', discoveredContacts);
 
-              // Check if sub-page is a contact form
-              if (subPage.type === 'contact' || subPage.type === 'booking') {
-                const hasForm = /<form\b/i.test(subRes.html) || /input\b/i.test(subRes.html);
-                if (hasForm && !discoveredContacts.has(subPage.url)) {
-                  discoveredContacts.set(subPage.url, {
-                    value: subPage.url,
-                    type: 'CONTACT_FORM',
-                    classification: 'BUSINESS_GENERIC',
-                    source: 'official_contact_form',
-                    sourceUrl: subPage.url,
-                    sourceType: 'OFFICIAL_WEBSITE',
-                    confidence: 'HIGH',
-                    qualityScore: 70,
-                    status: 'VERIFIED_PUBLIC',
-                    discoveredAt: new Date(),
-                  });
+                // Check if sub-page is a contact form
+                if (subPage.type === 'contact' || subPage.type === 'booking') {
+                  const hasForm = /<form\b/i.test(subRes.html) || /input\b/i.test(subRes.html);
+                  if (hasForm && !discoveredContacts.has(subPage.url)) {
+                    discoveredContacts.set(subPage.url, {
+                      value: subPage.url,
+                      type: 'CONTACT_FORM',
+                      classification: 'BUSINESS_GENERIC',
+                      source: 'official_contact_form',
+                      sourceUrl: subPage.url,
+                      sourceType: 'OFFICIAL_WEBSITE',
+                      confidence: 'HIGH',
+                      qualityScore: 70,
+                      status: 'VERIFIED_PUBLIC',
+                      discoveredAt: new Date(),
+                    });
+                  }
                 }
               }
             }
           }
+        } catch (err: any) {
+          this.log.warn(`Failed contact crawling for ${targetWebsite}: ${err.message}`);
         }
-      } catch (err: any) {
-        this.log.warn(`Failed contact crawling for ${targetWebsite}: ${err.message}`);
       }
     }
 
@@ -206,11 +215,17 @@ export class ContactDiscoveryService {
     // 1. Extract Emails
     const extractedEmails = extractEmailsFromHtml(html);
     for (const item of extractedEmails) {
+      if (accumulator.size >= 10) break;
+
       const val = validateEmail(item.email, sourceUrl);
       if (val.isValid) {
+        const emailDomain = item.email.split('@')[1]?.toLowerCase();
+        const isPlatform = emailDomain ? isExcludedDirectoryDomain(emailDomain) : false;
+        const classification = isPlatform ? 'PLATFORM_CONTACT' : item.classification;
+
         const quality = calculateContactQualityScore({
           type: 'EMAIL',
-          classification: item.classification,
+          classification,
           sourceType,
         });
 
@@ -218,16 +233,16 @@ export class ContactDiscoveryService {
           value: item.email,
           email: item.email,
           type: 'EMAIL',
-          classification: item.classification,
-          source: 'official_website_html',
+          classification,
+          source: isPlatform ? 'platform_directory' : 'official_website_html',
           sourceUrl,
           sourceType,
-          confidence: val.domainMatchesOfficialWebsite ? 'HIGH' : 'MEDIUM',
+          confidence: isPlatform ? 'LOW' : (val.domainMatchesOfficialWebsite ? 'HIGH' : 'MEDIUM'),
           qualityScore: quality,
-          status: 'VERIFIED_PUBLIC',
+          status: isPlatform ? 'PUBLIC_UNVERIFIED' : 'VERIFIED_PUBLIC',
           emailAsFound: item.emailAsFound,
           sourceContext: item.sourceContext,
-          isVerified: true,
+          isVerified: !isPlatform,
           isPublic: true,
           discoveredAt: new Date(),
         });
@@ -237,6 +252,8 @@ export class ContactDiscoveryService {
     // 2. Extract Phones
     const extractedPhones = extractPhonesFromHtml(html);
     for (const item of extractedPhones) {
+      if (accumulator.size >= 10) break;
+
       const val = validatePhone(item.rawPhone);
       if (val.isValid && val.normalized && !accumulator.has(val.normalized)) {
         const quality = calculateContactQualityScore({

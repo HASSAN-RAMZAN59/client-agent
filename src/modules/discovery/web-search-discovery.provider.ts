@@ -11,6 +11,8 @@ import { OsmOverpassDiscoverySource } from './sources/osm-overpass.source.js';
 import { DuckDuckGoSearchDiscoverySource } from './sources/duckduckgo-search.source.js';
 import { createBusinessMatchKey, extractCanonicalDomain } from './normalizer.js';
 import { verifyWebsiteReachability, WebsiteReachabilityResult } from './website-verifier.js';
+import { validateBusinessIdentity } from './identity-validator.js';
+import { classifyWebsite } from './website-classifier.js';
 import { getMarketProfile } from '../../config/markets.js';
 import { safetyControls } from '../../config/safety.js';
 import { safeSleep } from '../../utils/sleeper.js';
@@ -130,6 +132,41 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
 
         for (const candidate of sourceResults) {
           if (discoveredCandidates.length >= effectiveLimit) break;
+
+          // 1. Enforce business identity safety
+          const identityCheck = validateBusinessIdentity(candidate.name, {
+            niche: query.niche,
+            city: candidate.city,
+            country: candidate.country || market.countryName,
+          });
+          if (identityCheck.isUnsafe) {
+            this.log.info(`Candidate "${candidate.name}" dropped: BUSINESS_IDENTITY_UNSAFE (${identityCheck.reason})`);
+            continue;
+          }
+
+          // 2. Validate official website vs directory/aggregator
+          if (candidate.website) {
+            const siteClass = classifyWebsite(candidate.website, candidate.name, candidate.city);
+            if (siteClass.type !== 'OFFICIAL_BUSINESS_SITE') {
+              if (candidate.source === 'public_search') {
+                this.log.info(`Search candidate "${candidate.name}" dropped: URL is ${siteClass.type} (${candidate.website})`);
+                continue;
+              } else {
+                // For non-search sources (e.g. OSM), keep the legitimate business entity but nullify directory URL
+                this.log.info(`Candidate "${candidate.name}" website nullified: URL is ${siteClass.type} (${candidate.website})`);
+                candidate.website = undefined;
+                candidate.officialWebsiteStatus = 'UNVERIFIED';
+                candidate.websiteType = siteClass.type;
+                candidate.officialWebsiteConfidence = 'LOW';
+                candidate.officialWebsiteEvidence = siteClass.evidence;
+              }
+            } else {
+              candidate.officialWebsiteStatus = 'VERIFIED';
+              candidate.websiteType = 'OFFICIAL_BUSINESS_SITE';
+              candidate.officialWebsiteConfidence = siteClass.confidence;
+              candidate.officialWebsiteEvidence = siteClass.evidence;
+            }
+          }
 
           const matchKey = createBusinessMatchKey(candidate.name, candidate.city);
           const domain = candidate.website ? extractCanonicalDomain(candidate.website) : undefined;

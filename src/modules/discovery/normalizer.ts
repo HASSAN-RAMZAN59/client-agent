@@ -174,6 +174,9 @@ export function cleanSearchTitleToBusinessName(
   // 2. Remove parentheticals at the end e.g. (Formerly XYZ)
   text = text.replace(/\s*\([^)]*\)$/, '').trim();
 
+  // 2a. Strip year indicators e.g. "2026", "2025"
+  text = text.replace(/\s*\b(202[0-9]|203[0-9])\b\s*$/i, '').trim();
+
   // 2b. Strip common search-intent prefixes
   // e.g. "Dentist in Dallas, TX AmeriSmiles Dental", "Dentist near me Dental House", "HVAC in Dallas Air Pro"
   const searchIntentPrefixRegex = /^(?:dentist|dentistry|dental|hvac|doctor|plumber|lawyer|attorney|roofing|electrician|cleaning|chiropractor|orthodontist|pediatric\s+dentist)\s+(?:(?:in\s+[a-zA-Z\s]+(?:,\s*(?:[A-Z]{2}|Texas|USA|US))?)|near\s+me|services\s+in\s+[a-zA-Z\s,.-]+?)\s*[-–—|:•/,\s]+\s*/i;
@@ -214,13 +217,16 @@ export function cleanSearchTitleToBusinessName(
   text = text.replace(suffixRegex, '').trim();
 
   // 6. Strip trailing location qualifiers
-  // e.g. "Example Dental Clinic - Dallas TX", "Example Dental Clinic Dallas, TX"
+  // e.g. "Example Dental Clinic - Dallas TX", "Example Dental Clinic Dallas, TX", "Best Dentist in Faisalabad 2026"
   if (options?.city) {
-    const cityRegex = new RegExp(`(?:\\s*[-–—|:•/]+\\s*|\\s+)(?:in\\s+)?${options.city}(?:,?\\s*(?:${options.state || '[A-Z]{2}'}|Texas|USA|US))?\\s*$`, 'i');
+    const cityRegex = new RegExp(`(?:\\s*[-–—|:•/]+\\s*|\\s+)(?:in\\s+)?${options.city}(?:,?\\s*(?:${options.state || '[A-Z]{2}'}|Texas|USA|US))?(?:\\s+(?:202[0-9]|203[0-9]))?\\s*$`, 'i');
     text = text.replace(cityRegex, '').trim();
   }
   // Generic city/state suffix e.g. "Dallas TX", "Dallas, TX", "Austin TX"
   text = text.replace(/(?:\s*[-–—|:•/]+\s*|\s+(?:in\s+)?)(?:[A-Z][a-zA-Z\s]+,?\s+(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA))\s*$/i, '').trim();
+
+  // Strip trailing punctuation artifacts (e.g. trailing comma)
+  text = text.replace(/^[\s,;:\-–—|/•]+|[\s,;:\-–—|/•]+$/g, '').trim();
 
   // 7. Detect and collapse repeated business-name fragments
   // e.g. "Atlantis Dental Care Dallas TX Atlantis Dental Care" -> after location removal: "Atlantis Dental Care Atlantis Dental Care"

@@ -13,7 +13,8 @@ export function normalizePhoneNumber(raw: string): { normalized: string; country
   const digits = raw.replace(/\D/g, '');
 
   // Standard US / North American Numbering Plan (10 digits, or 11 with leading 1)
-  if (!hasPlus && digits.length === 10) {
+  // Note: NANP area codes can never start with 0 or 1
+  if (!hasPlus && digits.length === 10 && digits[0] >= '2' && digits[0] <= '9') {
     const area = digits.slice(0, 3);
     const prefix = digits.slice(3, 6);
     const line = digits.slice(6, 10);
@@ -39,6 +40,30 @@ export function normalizePhoneNumber(raw: string): { normalized: string; country
       normalized: `+${digits}`,
       country: 'PK',
     };
+  }
+
+  // Pakistan Domestic (03XX XXXXXXX -> +923XXXXXXXXX, or domestic landline 04X XXXXXXX -> +924XXXXXXXX)
+  if (digits.startsWith('03') && digits.length === 11) {
+    return {
+      normalized: `+92${digits.slice(1)}`,
+      country: 'PK',
+    };
+  }
+  if (digits.startsWith('0') && (digits.length === 10 || digits.length === 11) && !hasPlus) {
+    if (
+      digits.startsWith('02') ||
+      digits.startsWith('04') ||
+      digits.startsWith('05') ||
+      digits.startsWith('06') ||
+      digits.startsWith('07') ||
+      digits.startsWith('08') ||
+      digits.startsWith('09')
+    ) {
+      return {
+        normalized: `+92${digits.slice(1)}`,
+        country: 'PK',
+      };
+    }
   }
 
   // UK (+44)

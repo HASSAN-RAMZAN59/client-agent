@@ -99,8 +99,11 @@ export class PersonalizationService {
     if (hotOnly) {
       whereClause.classification = 'HOT';
     } else {
+      whereClause.classification = { in: ['HOT', 'WARM'] };
       whereClause.status = { in: ['NEW', 'QUALIFIED'] };
     }
+    whereClause.primaryContactType = { not: 'NONE' };
+    whereClause.contactDiscoveryStatus = { in: ['VERIFIED_PUBLIC', 'PUBLIC_UNVERIFIED'] };
 
     const leads = await prisma.lead.findMany({
       where: whereClause,

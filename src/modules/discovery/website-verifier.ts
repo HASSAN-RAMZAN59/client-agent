@@ -1,5 +1,6 @@
 import { normalizeUrl, extractCanonicalDomain, normalizeBusinessName } from './normalizer.js';
 import { WebsiteReachabilityStatus, OfficialWebsiteConfidence } from '../../types/index.js';
+import { classifyWebsite } from './website-classifier.js';
 import { logger } from '../../utils/logger.js';
 
 export interface WebsiteReachabilityResult {
@@ -29,6 +30,12 @@ export function calculateOfficialWebsiteConfidence(
   rawUrl?: string | null
 ): OfficialWebsiteConfidence {
   if (!rawUrl || rawUrl.trim().length === 0) return 'UNKNOWN';
+
+  // If website is classified as directory, aggregator, marketplace, or social, confidence is LOW
+  const classification = classifyWebsite(rawUrl, businessName);
+  if (classification.type !== 'OFFICIAL_BUSINESS_SITE') {
+    return 'LOW';
+  }
 
   const domain = extractCanonicalDomain(rawUrl);
   if (!domain) return 'UNKNOWN';

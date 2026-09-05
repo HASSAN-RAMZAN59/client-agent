@@ -9,6 +9,7 @@ import { createLogger } from '../../../utils/logger.js';
 import { isStrictlyValidEmail, normalizeCountryCode } from '../../../utils/email-validator.js';
 import { ContentHasher } from '../../personalization/hardening/content-hasher.js';
 import { SmtpDeliveryProvider } from '../execution/smtp-delivery.provider.js';
+import { validateBusinessIdentity } from '../../discovery/identity-validator.js';
 
 const PROHIBITED_FEAR_PATTERNS = [
   /losing\s+(revenue|money|thousands|millions)/i,
@@ -278,7 +279,12 @@ export class PreSendValidator {
       /\bdentists?\s+near\s+me\b/i,
       /\bdallas(?:,\s*tx)?\s+dentists?\b/i,
     ];
-    const isUnsafeName = unsafeIdentityRegexes.some((rx) => rx.test(name));
+    const identityCheck = validateBusinessIdentity(name, {
+      city: business?.city,
+      country: business?.country,
+      niche: business?.category,
+    });
+    const isUnsafeName = unsafeIdentityRegexes.some((rx) => rx.test(name)) || !identityCheck.isValid;
 
     const validBusinessIdentity = Boolean(
       name &&
@@ -292,6 +298,19 @@ export class PreSendValidator {
       } else {
         reasons.push('INVALID_BUSINESS_IDENTITY');
       }
+    }
+
+    // 4b. Lead Qualification & Contact Channel Gates
+    if (lead?.classification === 'COLD') {
+      reasons.push('COLD_LEAD_DISPATCH_PROHIBITED');
+    }
+    const hasValidLeadContact =
+      lead?.primaryContactValue &&
+      lead?.primaryContactType &&
+      lead?.primaryContactType !== 'NONE' &&
+      lead?.contactDiscoveryStatus !== 'NONE_FOUND';
+    if (!hasValidLeadContact) {
+      reasons.push('NO_CONTACT_LEAD');
     }
 
     // 5. Contact & Verified Public Email Check
@@ -308,6 +327,11 @@ export class PreSendValidator {
     const isGuessed = Boolean(
       matchingContact?.status === 'NONE_FOUND' || matchingContact?.status === 'INVALID'
     );
+    const isPlatformContact = Boolean(matchingContact?.classification === 'PLATFORM_CONTACT');
+
+    if (isPlatformContact) {
+      reasons.push('PLATFORM_CONTACT_PROHIBITED');
+    }
 
     if (!isEmailChannel || !validEmailFormat) {
       if (!validEmailFormat && contactValue) {

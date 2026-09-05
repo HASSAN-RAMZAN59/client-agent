@@ -3,6 +3,7 @@ import { getPrismaClient } from '../client.js';
 import { DiscoveredBusinessInput } from '../../types/index.js';
 import { extractCanonicalDomain, normalizeBusinessName, normalizeUrl } from '../../modules/discovery/normalizer.js';
 import { WebsiteReachabilityResult } from '../../modules/discovery/website-verifier.js';
+import { classifyWebsite } from '../../modules/discovery/website-classifier.js';
 import { logger } from '../../utils/logger.js';
 
 export interface UpsertBusinessResult {
@@ -86,7 +87,19 @@ export class BusinessRepository {
     reachability?: WebsiteReachabilityResult
   ): Promise<UpsertBusinessResult> {
     const cleanName = normalizeBusinessName(input.name);
-    const normalizedWebsite = normalizeUrl(input.website);
+    let normalizedWebsite = normalizeUrl(input.website);
+
+    // Verify official website status: Directory/aggregator URLs cannot become business.website
+    if (normalizedWebsite) {
+      const siteClass = classifyWebsite(normalizedWebsite, cleanName, input.city);
+      if (siteClass.type !== 'OFFICIAL_BUSINESS_SITE') {
+        this.log.info(
+          `Prevented ${siteClass.type} URL from being set as official website for "${cleanName}": ${normalizedWebsite}`
+        );
+        normalizedWebsite = undefined;
+      }
+    }
+
     const existing = await this.findDuplicate({ ...input, name: cleanName, website: normalizedWebsite });
 
     if (existing) {

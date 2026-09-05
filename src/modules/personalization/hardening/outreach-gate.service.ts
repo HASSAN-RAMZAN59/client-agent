@@ -57,6 +57,22 @@ export class OutreachGateService {
     }
     warnings.push(...identityResult.warnings);
 
+    // 2b. Contact Channel & Lead-Class Gate (NO_CONTACT_LEAD or COLD cannot progress to READY_TO_SEND)
+    const hasContact =
+      draft.primaryContactValue &&
+      draft.primaryContactValue !== 'NONE_FOUND' &&
+      draft.primaryContactType !== 'NONE' &&
+      draft.primaryContactType !== 'PLATFORM_CONTACT' &&
+      draft.lead?.contactDiscoveryStatus !== 'NONE_FOUND';
+
+    if (!hasContact) {
+      reasons.push('NO_CONTACT_LEAD: Cannot progress draft to READY_TO_SEND without valid business contact.');
+    }
+
+    if (draft.lead?.classification === 'COLD') {
+      reasons.push('COLD_LEAD: Outreach is restricted to HOT/WARM qualified leads.');
+    }
+
     // 3. Multi-Factor Quality Score & Quality Band
     const qualityResult = OutreachQualityEvaluator.evaluate({
       subject: draft.subject || '',

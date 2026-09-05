@@ -92,6 +92,26 @@ export type OfficialWebsiteConfidence =
   | 'LOW'
   | 'UNKNOWN';
 
+export type WebsiteType =
+  | 'OFFICIAL_BUSINESS_SITE'
+  | 'DIRECTORY_LISTING'
+  | 'AGGREGATOR'
+  | 'MARKETPLACE'
+  | 'SOCIAL_PROFILE'
+  | 'UNKNOWN';
+
+export type OfficialWebsiteStatus = 'VERIFIED' | 'UNVERIFIED';
+
+export interface WebsiteClassificationResult {
+  url: string;
+  domain: string;
+  type: WebsiteType;
+  confidence: OfficialWebsiteConfidence;
+  evidence: string[];
+  isAuthoritative: boolean;
+  isOfficialSite: boolean;
+}
+
 // Phase 3 Website Intelligence & Audit Types
 export type DetailedAuditStatus =
   | 'AUDITED'
@@ -234,6 +254,9 @@ export interface DiscoveredBusinessInput {
   phoneSource?: string;
   addressSource?: string;
   officialWebsiteConfidence?: OfficialWebsiteConfidence;
+  officialWebsiteStatus?: OfficialWebsiteStatus;
+  websiteType?: WebsiteType;
+  officialWebsiteEvidence?: string[];
   nameConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
   discoveredAt?: Date;
 }
@@ -262,6 +285,8 @@ export type ContactClassification =
   | 'BUSINESS_NAMED'
   | 'BUSINESS_PHONE'
   | 'DECISION_MAKER_PHONE'
+  | 'PLATFORM_CONTACT'
+  | 'BUSINESS_CONTACT'
   | 'UNKNOWN';
 
 export type ContactSourceType =

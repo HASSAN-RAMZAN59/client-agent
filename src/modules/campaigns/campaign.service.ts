@@ -244,9 +244,35 @@ export class CampaignService {
         this.log.warn(`Contact discovery failed for "${business.name}": ${msg}`);
       }
 
-      // D. Personalization
+      // D. Personalization (Restricted to HOT/WARM leads with verified contacts)
+      // Re-fetch current lead state after scoring and contact discovery
+      const currentLead = await this.db.lead.findUnique({
+        where: { id: lead.id },
+        include: { business: true },
+      });
+
+      if (!currentLead) continue;
+
+      // Gate 1: Campaign lead-class criteria (HOT/WARM only)
+      if (currentLead.classification === 'COLD' || (currentLead.classification !== 'HOT' && currentLead.classification !== 'WARM')) {
+        this.log.info(`Skipping draft generation for COLD/unqualified lead "${business.name}" [${currentLead.id}]`);
+        continue;
+      }
+
+      // Gate 2: Contact channel gate (no contacts or missing contact cannot draft)
+      const hasValidContact =
+        currentLead.primaryContactValue &&
+        currentLead.primaryContactType &&
+        currentLead.primaryContactType !== 'NONE' &&
+        currentLead.contactDiscoveryStatus !== 'NONE_FOUND';
+
+      if (!hasValidContact) {
+        this.log.info(`Skipping draft generation for NO_CONTACT_LEAD "${business.name}" [${currentLead.id}]`);
+        continue;
+      }
+
       try {
-        const result = await this.personalizationService.personalizeLead(lead.id);
+        const result = await this.personalizationService.personalizeLead(currentLead.id);
         draftsGeneratedCount += result.variants.length;
 
         // Check Gate status on generated drafts

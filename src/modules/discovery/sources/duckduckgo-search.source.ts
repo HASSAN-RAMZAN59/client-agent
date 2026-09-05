@@ -4,6 +4,8 @@ import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus, Discover
 import { normalizeBusinessName, normalizeUrl, normalizePhone, cleanSearchTitleToBusinessName } from '../normalizer.js';
 import { calculateOfficialWebsiteConfidence } from '../website-verifier.js';
 import { isExcludedDirectoryDomain } from '../excluded-domains.js';
+import { classifyWebsite } from '../website-classifier.js';
+import { validateBusinessIdentity } from '../identity-validator.js';
 import { generateDiscoveryQueries } from '../query-generator.js';
 import { getMarketProfile } from '../../../config/markets.js';
 import { safetyControls, SafetyControls } from '../../../config/safety.js';
@@ -208,6 +210,12 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
               return;
             }
 
+            // Quick preliminary URL classification
+            const initialClassification = classifyWebsite(targetUrl, undefined, query.city);
+            if (initialClassification.type !== 'OFFICIAL_BUSINESS_SITE') {
+              return;
+            }
+
             const normalizedWebsite = normalizeUrl(targetUrl);
             const titleCleanResult = cleanSearchTitleToBusinessName(rawTitle, {
               city: query.city,
@@ -218,6 +226,24 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
             const businessName = titleCleanResult.cleanedName;
 
             if (!businessName || businessName.length < 3) return;
+
+            // Enforce BUSINESS_IDENTITY_UNSAFE gate
+            const identityCheck = validateBusinessIdentity(businessName, {
+              niche: query.niche,
+              city: query.city,
+              country: market.countryName,
+            });
+            if (identityCheck.isUnsafe) {
+              this.log.info(`Search candidate "${businessName}" rejected: BUSINESS_IDENTITY_UNSAFE (${identityCheck.reason})`);
+              return;
+            }
+
+            // Detailed classification with cleaned business name
+            const websiteClassification = classifyWebsite(targetUrl, businessName, query.city);
+            if (websiteClassification.type !== 'OFFICIAL_BUSINESS_SITE') {
+              this.log.info(`Search candidate "${businessName}" rejected: Website is ${websiteClassification.type} (${targetUrl})`);
+              return;
+            }
 
             // In-memory dedup within DDG queries
             const nameKey = businessName.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -231,10 +257,6 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
             // Extract phone pattern using market regex
             const phoneMatch = snippet.match(market.phonePattern);
             const phone = phoneMatch ? normalizePhone(phoneMatch[0]) : undefined;
-
-            const confidence = normalizedWebsite
-              ? calculateOfficialWebsiteConfidence(businessName, normalizedWebsite)
-              : 'UNKNOWN';
 
             discoveredResults.push({
               name: businessName,
@@ -254,7 +276,10 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
               contactChannel: normalizedWebsite ? 'WEBSITE_LEAD' : (phone ? 'PHONE_ONLY_LEAD' : 'NO_CONTACT_LEAD'),
               websiteSource: normalizedWebsite ? 'public_search' : undefined,
               phoneSource: phone ? 'public_search' : undefined,
-              officialWebsiteConfidence: confidence,
+              officialWebsiteConfidence: websiteClassification.confidence,
+              officialWebsiteStatus: 'VERIFIED',
+              websiteType: 'OFFICIAL_BUSINESS_SITE',
+              officialWebsiteEvidence: websiteClassification.evidence,
               nameConfidence: titleCleanResult.confidence,
               discoveredAt: now,
             });

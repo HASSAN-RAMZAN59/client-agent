@@ -1,5 +1,6 @@
 import { PersonalizationContext } from '../../../types/index.js';
 import { extractDomain } from '../../../utils/url-utils.js';
+import { validateBusinessIdentity } from '../../discovery/identity-validator.js';
 
 export interface BusinessIdentityValidationResult {
   valid: boolean;
@@ -23,7 +24,14 @@ export class BusinessIdentityValidator {
     }
 
     // 1b. Reject Unsafe / SEO Search Titles as Business Name
-    // e.g. "Dentist in Dallas, TX", "Dallas, TX Dentists", "Dentist near me", "Emergency Dentist Dallas", "Top Dentists in Dallas"
+    const identityCheck = validateBusinessIdentity(name, {
+      city: context.business.city,
+      niche: context.business.category,
+    });
+    if (identityCheck.isUnsafe) {
+      reasons.push(`BUSINESS_IDENTITY_UNSAFE: Business name "${name}" appears to be an unverified SEO/search title (${identityCheck.reason}).`);
+    }
+
     const unsafeIdentityRegexes = [
       /^(?:dentist|dentists|dentistry|dental|hvac|plumber|plumbing|doctor|lawyer|attorney|roofing|electrician|cleaning)\s+in\s+[a-zA-Z\s,.-]+$/i,
       /^[a-zA-Z\s,.-]+,\s*(?:TX|CA|NY|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|ID|WV|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|USA)\s+(?:dentists?|dentistry|hvac|plumbers?|doctors?|lawyers?|attorneys?|services)$/i,
@@ -32,15 +40,24 @@ export class BusinessIdentityValidator {
     ];
 
     for (const rx of unsafeIdentityRegexes) {
-      if (rx.test(name)) {
+      if (rx.test(name) && !reasons.some((r) => r.includes('BUSINESS_IDENTITY_UNSAFE'))) {
         reasons.push(`BUSINESS_IDENTITY_UNSAFE: Business name "${name}" appears to be an unverified SEO/search title.`);
         break;
       }
     }
 
-    // 2. Contact Availability
-    if (!recipientContactValue || recipientContactValue === 'NONE_FOUND' || recipientContactType === 'NONE') {
-      reasons.push('No valid contact information associated with this business draft.');
+    // 2. Contact Availability & Provenance Safety
+    if (
+      !recipientContactValue ||
+      recipientContactValue === 'NONE_FOUND' ||
+      recipientContactType === 'NONE' ||
+      recipientContactType === 'PLATFORM_CONTACT'
+    ) {
+      if (recipientContactType === 'PLATFORM_CONTACT') {
+        reasons.push('PLATFORM_CONTACT_PROHIBITED: Cannot send outreach to platform or directory contacts.');
+      } else {
+        reasons.push('No valid contact information associated with this business draft.');
+      }
       return {
         valid: false,
         reasons,

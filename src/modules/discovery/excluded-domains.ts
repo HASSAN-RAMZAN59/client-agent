@@ -56,7 +56,7 @@ export const DEFAULT_EXCLUDED_DOMAINS = new Set<string>([
   'mybuilder.com',
   'trustpilot.com',
 
-  // South Asian & Regional Aggregators
+  // South Asian & Regional Aggregators & Portals
   'placedigger.com',
   'pk.placedigger.com',
   'dealer.com.pk',
@@ -70,6 +70,29 @@ export const DEFAULT_EXCLUDED_DOMAINS = new Set<string>([
   'zameen.com',
   'mustakbil.com',
   'rozee.pk',
+  'marham.pk',
+  'apkamuaalij.com',
+  'ebizpk.com',
+  'health360.pk',
+  'oladoc.com',
+  'shifaam.com',
+  'instacare.pk',
+  'practo.com',
+  'dunya.com',
+  'pakistanistores.com',
+  'shafaf.pk',
+  'findout.pk',
+  'businesslist.pk',
+  'pakistanbusinessdirectory.com',
+  'lahore.com.pk',
+  'karachi.com.pk',
+  'islamabad.com.pk',
+  'faisalabad.com.pk',
+  'nicelocal.com',
+  'city-data.com',
+  'cylex.us.com',
+  'cylex-uk.co.uk',
+  'afh.com.pk',
 
   // Social Networks, Generic Platforms, Job Boards & Web Builders
   'facebook.com',
@@ -108,12 +131,14 @@ export function isExcludedDirectoryDomain(
   if (!urlOrDomain || typeof urlOrDomain !== 'string') return true;
 
   let hostname = urlOrDomain.toLowerCase().trim();
+  let pathname = '';
 
-  // Strip protocol and path if full URL was provided
+  // Strip protocol and extract hostname + pathname if full URL was provided
   try {
     if (hostname.startsWith('http://') || hostname.startsWith('https://')) {
       const parsed = new URL(hostname);
       hostname = parsed.hostname.toLowerCase();
+      pathname = parsed.pathname.toLowerCase();
     }
   } catch {
     // If URL parsing fails, continue with normalized string
@@ -129,7 +154,7 @@ export function isExcludedDirectoryDomain(
     return true;
   }
 
-  // 2. Suffix / Subdomain Match (e.g. "pk.placedigger.com" matches "placedigger.com")
+  // 2. Suffix / Subdomain Match (e.g. "faisalabad.ebizpk.com" matches "ebizpk.com")
   for (const excluded of DEFAULT_EXCLUDED_DOMAINS) {
     if (hostname === excluded || hostname.endsWith(`.${excluded}`)) {
       return true;
@@ -150,23 +175,46 @@ export function isExcludedDirectoryDomain(
     }
   }
 
-  // 4. Common URL Path Aggregator Patterns (e.g. /find/, /directory/, /best-10/, /top-10/)
-  if (
-    urlOrDomain.includes('/category/') ||
-    urlOrDomain.includes('/find/') ||
-    urlOrDomain.includes('/listing/') ||
-    urlOrDomain.includes('/top-10-') ||
-    urlOrDomain.includes('/best-')
-  ) {
-    // If domain also has aggregator keywords
-    if (
-      hostname.includes('directory') ||
-      hostname.includes('placedigger') ||
-      hostname.includes('top10') ||
-      hostname.includes('localsearch') ||
-      hostname.includes('city-guide')
-    ) {
-      return true;
+  // 4. Common URL Path Aggregator Patterns
+  const directoryPathPatterns = [
+    '/doctors/',
+    '/doctor/',
+    '/dentists/',
+    '/dentist/',
+    '/hospitals/',
+    '/hospital/',
+    '/clinics/',
+    '/department/',
+    '/departments/',
+    '/category/',
+    '/categories/',
+    '/find/',
+    '/listing/',
+    '/listings/',
+    '/directory/',
+    '/top-10-',
+    '/best-',
+    '/dental-clinics-',
+  ];
+
+  const fullPathOrUrl = (pathname || urlOrDomain).toLowerCase();
+  for (const pattern of directoryPathPatterns) {
+    if (fullPathOrUrl.includes(pattern)) {
+      // If the domain is already an aggregator or matches directory characteristics
+      if (
+        hostname.includes('directory') ||
+        hostname.includes('placedigger') ||
+        hostname.includes('top10') ||
+        hostname.includes('localsearch') ||
+        hostname.includes('city-guide') ||
+        hostname.includes('ebiz') ||
+        hostname.includes('muaalij') ||
+        hostname.includes('marham') ||
+        hostname.includes('health') ||
+        hostname.includes('portal')
+      ) {
+        return true;
+      }
     }
   }
 
