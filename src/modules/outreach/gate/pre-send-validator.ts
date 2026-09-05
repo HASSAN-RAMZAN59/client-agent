@@ -304,12 +304,12 @@ export class PreSendValidator {
     if (lead?.classification === 'COLD') {
       reasons.push('COLD_LEAD_DISPATCH_PROHIBITED');
     }
-    const hasValidLeadContact =
-      lead?.primaryContactValue &&
-      lead?.primaryContactType &&
-      lead?.primaryContactType !== 'NONE' &&
-      lead?.contactDiscoveryStatus !== 'NONE_FOUND';
-    if (!hasValidLeadContact) {
+    const hasAnyContact = Boolean(
+      (outreach.primaryContactValue && outreach.primaryContactType !== 'NONE' && outreach.primaryContactType !== 'PLATFORM_CONTACT') ||
+      (lead?.primaryContactValue && lead?.primaryContactType !== 'NONE' && lead?.primaryContactType !== 'PLATFORM_CONTACT') ||
+      (business?.contacts && business.contacts.some((c) => c.value && (c.type === 'EMAIL' || c.type === 'PHONE') && c.classification !== 'PLATFORM_CONTACT' && c.status !== 'INVALID'))
+    );
+    if (!hasAnyContact || (lead?.contactDiscoveryStatus === 'NONE_FOUND' && !outreach.primaryContactValue && !business?.contacts?.length)) {
       reasons.push('NO_CONTACT_LEAD');
     }
 

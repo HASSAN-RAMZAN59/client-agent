@@ -93,10 +93,12 @@ export class InteractiveReviewerService {
     // 2. Query outreach records in DRAFT / REVIEW_REQUIRED status
     const whereClause: any = {
       status: { in: ['DRAFT', 'REVIEW_REQUIRED'] },
+      lead: { id: { not: '' } },
     };
 
     if (!includeTest) {
       whereClause.lead = {
+        id: { not: '' },
         business: {
           NOT: [
             { source: { startsWith: 'test' } },
