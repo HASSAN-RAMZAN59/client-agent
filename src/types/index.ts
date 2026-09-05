@@ -259,6 +259,9 @@ export interface DiscoveredBusinessInput {
   officialWebsiteEvidence?: string[];
   nameConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
   discoveredAt?: Date;
+  osmId?: string;
+  sources?: string[];
+  nativeContacts?: DiscoveredContactInput[];
 }
 
 export interface WebsiteAuditResult {
@@ -280,12 +283,19 @@ export interface WebsiteAuditResult {
 export type ContactType = 'EMAIL' | 'PHONE' | 'CONTACT_FORM';
 
 export type ContactClassification =
+  | 'OFFICIAL_SITE_EMAIL'
+  | 'OFFICIAL_SITE_PHONE'
+  | 'OSM_PUBLIC_PHONE'
+  | 'OSM_PUBLIC_EMAIL'
+  | 'VERIFIED_BUSINESS_LISTING_PHONE'
+  | 'SOCIAL_PROFILE_PHONE'
+  | 'PLATFORM_CONTACT'
+  | 'UNVERIFIED_CONTACT'
   | 'BUSINESS_GENERIC'
   | 'BUSINESS_DEPARTMENT'
   | 'BUSINESS_NAMED'
   | 'BUSINESS_PHONE'
   | 'DECISION_MAKER_PHONE'
-  | 'PLATFORM_CONTACT'
   | 'BUSINESS_CONTACT'
   | 'UNKNOWN';
 
@@ -293,6 +303,9 @@ export type ContactSourceType =
   | 'OFFICIAL_WEBSITE'
   | 'PUBLIC_LISTING'
   | 'PUBLIC_SEARCH'
+  | 'OSM_TAG'
+  | 'DIRECTORY_HINT'
+  | 'SOCIAL_PROFILE'
   | 'OTHER_PUBLIC_SOURCE';
 
 export type ContactDiscoveryStatus =
@@ -314,6 +327,7 @@ export interface DiscoveredContactRecord {
   source: string;
   sourceUrl?: string;
   sourceType: ContactSourceType;
+  field?: string;
   confidence: AuditConfidence;
   qualityScore: number;
   status: ContactDiscoveryStatus;
@@ -347,6 +361,7 @@ export interface DiscoveredContactInput {
   source: string;
   sourceUrl?: string;
   sourceType?: ContactSourceType;
+  field?: string;
   confidence?: AuditConfidence;
   qualityScore?: number;
   status?: ContactDiscoveryStatus;
@@ -997,7 +1012,7 @@ export interface LeadQueueItem {
   dataConfidence: AuditConfidence;
   recommendedService: RecommendedService;
   salesAngleText?: string;
-  recommendedChannel: 'PHONE' | 'EMAIL' | 'CONTACT_FORM';
+  recommendedChannel: 'PHONE' | 'EMAIL' | 'CONTACT_FORM' | 'NO_CONTACT';
   suggestedObjective?: string;
   suggestedOpening?: string;
   websiteStatus?: string;

@@ -9,6 +9,8 @@ import {
 import { DiscoverySource, SourceMetrics } from './discovery-source.interface.js';
 import { OsmOverpassDiscoverySource } from './sources/osm-overpass.source.js';
 import { DuckDuckGoSearchDiscoverySource } from './sources/duckduckgo-search.source.js';
+import { BrowserSearchDiscoverySource } from './sources/browser-search.source.js';
+import { DirectoryHintDiscoverySource } from './sources/directory-hint.source.js';
 import { createBusinessMatchKey, extractCanonicalDomain } from './normalizer.js';
 import { verifyWebsiteReachability, WebsiteReachabilityResult } from './website-verifier.js';
 import { validateBusinessIdentity } from './identity-validator.js';
@@ -43,6 +45,8 @@ export interface DiscoveryExecutionSummary {
   existingInDb: number;
   addedToCampaign: number;
   alreadyCampaignMembers: number;
+  rejectedDirectory: number;
+  rejectedUnsafeIdentity: number;
   discoveryOutcome: DiscoveryAggregateOutcome;
   discoveryErrorMessage?: string;
   websitesFound: number;
@@ -75,6 +79,8 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
       this.sources = [
         new OsmOverpassDiscoverySource(),
         new DuckDuckGoSearchDiscoverySource(),
+        new BrowserSearchDiscoverySource(),
+        new DirectoryHintDiscoverySource(),
       ];
     }
     this.sources.sort((a, b) => a.priority - b.priority);
@@ -109,10 +115,13 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
     const blockedSources: string[] = [];
     const discoveredCandidates: DiscoveredBusinessInput[] = [];
 
-    const seenNameCityKeys = new Set<string>();
+    const candidatesByMatchKey = new Map<string, DiscoveredBusinessInput>();
     const seenDomains = new Set<string>();
     let totalRequestsMade = 0;
     let rawDiscoveredCount = 0;
+    let rejectedDirectoryCount = 0;
+    let rejectedUnsafeIdentityCount = 0;
+    let duplicateCandidatesCount = 0;
 
     for (const source of this.sources) {
       if (discoveredCandidates.length >= effectiveLimit) break;
@@ -147,6 +156,7 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
             country: candidate.country || market.countryName,
           });
           if (identityCheck.isUnsafe) {
+            rejectedUnsafeIdentityCount++;
             this.log.info(`Candidate "${candidate.name}" dropped: BUSINESS_IDENTITY_UNSAFE (${identityCheck.reason})`);
             continue;
           }
@@ -155,7 +165,8 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
           if (candidate.website) {
             const siteClass = classifyWebsite(candidate.website, candidate.name, candidate.city);
             if (siteClass.type !== 'OFFICIAL_BUSINESS_SITE') {
-              if (candidate.source === 'public_search') {
+              if (candidate.source === 'public_search' || candidate.source === 'browser_search') {
+                rejectedDirectoryCount++;
                 this.log.info(`Search candidate "${candidate.name}" dropped: URL is ${siteClass.type} (${candidate.website})`);
                 continue;
               } else {
@@ -178,19 +189,47 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
           const matchKey = createBusinessMatchKey(candidate.name, candidate.city);
           const domain = candidate.website ? extractCanonicalDomain(candidate.website) : undefined;
 
-          // In-memory deduplication across sources during run
-          if (seenNameCityKeys.has(matchKey) || (domain && seenDomains.has(domain))) {
-            this.log.debug(`Duplicate candidate dropped in memory: ${candidate.name} (${candidate.website || 'No website'})`);
+          // Multi-source deduplication & provenance merging
+          if (candidatesByMatchKey.has(matchKey) || (domain && seenDomains.has(domain))) {
+            duplicateCandidatesCount++;
+            const existing = candidatesByMatchKey.get(matchKey) || (domain ? discoveredCandidates.find(c => c.website && extractCanonicalDomain(c.website) === domain) : undefined);
+            if (existing) {
+              const currentSources = new Set(existing.sources || [existing.source]);
+              currentSources.add(candidate.source);
+              existing.sources = Array.from(currentSources);
+
+              // Merge verified website if existing lacked one
+              if (!existing.website && candidate.website) {
+                existing.website = candidate.website;
+                existing.websiteSource = candidate.websiteSource || candidate.source;
+                existing.officialWebsiteConfidence = candidate.officialWebsiteConfidence;
+                existing.officialWebsiteStatus = candidate.officialWebsiteStatus;
+              }
+
+              // Merge verified phone if existing lacked one
+              if (!existing.phone && candidate.phone) {
+                existing.phone = candidate.phone;
+                existing.phoneSource = candidate.phoneSource || candidate.source;
+              }
+
+              // Merge native contacts
+              if (candidate.nativeContacts && candidate.nativeContacts.length > 0) {
+                existing.nativeContacts = [...(existing.nativeContacts || []), ...candidate.nativeContacts];
+              }
+            }
             continue;
           }
 
-          seenNameCityKeys.add(matchKey);
           if (domain) seenDomains.add(domain);
 
           // Enrich provenance metadata
           candidate.country = candidate.country || market.countryName;
           candidate.marketCode = candidate.marketCode || market.countryCode;
+          if (!candidate.sources) {
+            candidate.sources = [candidate.source];
+          }
 
+          candidatesByMatchKey.set(matchKey, candidate);
           discoveredCandidates.push(candidate);
         }
 
@@ -224,10 +263,17 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
     const enhancedResults: EnhancedDiscoveredBusiness[] = [];
 
     for (const biz of discoveredCandidates) {
+      const hasNativeEmail = biz.nativeContacts?.some((c) => c.type === 'EMAIL');
       if (!biz.website || biz.website.trim().length === 0) {
         noWebsites++;
-        const channel: LeadContactChannel = biz.phone ? 'PHONE_ONLY_LEAD' : 'NO_CONTACT_LEAD';
-        if (channel === 'PHONE_ONLY_LEAD') phoneOnlyLeadCount++;
+        const channel: LeadContactChannel = hasNativeEmail
+          ? 'EMAIL_LEAD'
+          : biz.phone
+          ? 'PHONE_ONLY_LEAD'
+          : 'NO_CONTACT_LEAD';
+
+        if (channel === 'EMAIL_LEAD') emailLeadCount++;
+        else if (channel === 'PHONE_ONLY_LEAD') phoneOnlyLeadCount++;
         else noContactLeadCount++;
 
         enhancedResults.push({
@@ -368,10 +414,12 @@ export class WebSearchDiscoveryProvider implements BusinessDiscoveryProvider {
       rawDiscovered: rawDiscoveredCount,
       uniqueDiscovered: discoveredCandidates.length,
       newBusinesses: 0, // Populated after DB upsert
-      duplicates: 0,    // Populated after DB upsert
+      duplicates: duplicateCandidatesCount,
       existingInDb: 0,  // Populated after DB upsert
       addedToCampaign: 0, // Populated after DB upsert
       alreadyCampaignMembers: 0, // Populated after DB upsert
+      rejectedDirectory: rejectedDirectoryCount,
+      rejectedUnsafeIdentity: rejectedUnsafeIdentityCount,
       discoveryOutcome,
       discoveryErrorMessage,
       websitesFound,

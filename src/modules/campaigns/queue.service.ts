@@ -84,13 +84,15 @@ export class QueueService {
         }
       }
 
-      let recommendedChannel: 'PHONE' | 'EMAIL' | 'CONTACT_FORM' = 'EMAIL';
+      let recommendedChannel: 'PHONE' | 'EMAIL' | 'CONTACT_FORM' | 'NO_CONTACT' = 'NO_CONTACT';
       if (emailContact) {
         recommendedChannel = 'EMAIL';
+      } else if (phoneValue) {
+        recommendedChannel = 'PHONE';
       } else if (formContact) {
         recommendedChannel = 'CONTACT_FORM';
-      } else if (phoneValue || !hasWeb) {
-        recommendedChannel = 'PHONE';
+      } else {
+        recommendedChannel = 'NO_CONTACT';
       }
 
       let suggestedObjective = 'Confirm whether the business currently has an official website and identify the person responsible for website/marketing decisions.';
@@ -338,7 +340,13 @@ export class QueueService {
       }
 
       // Channel / Email Check
-      const emailContact = biz.contacts?.find((ct: any) => ct.type === 'EMAIL' && ct.status === 'VERIFIED_PUBLIC' && ct.sourceUrl);
+      const emailContact = biz.contacts?.find(
+        (ct: any) =>
+          ct.type === 'EMAIL' &&
+          ct.status === 'VERIFIED_PUBLIC' &&
+          ct.classification !== 'PLATFORM_CONTACT' &&
+          ct.classification !== 'UNVERIFIED_CONTACT'
+      );
       if (emailOnly) {
         if (o.channel !== 'EMAIL') continue;
         if (!o.primaryContactValue && !emailContact) continue;

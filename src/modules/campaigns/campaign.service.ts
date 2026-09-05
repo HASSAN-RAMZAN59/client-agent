@@ -197,45 +197,7 @@ export class CampaignService {
 
       if (!business) continue;
 
-      // A. Website Audit
-      let auditResult = business.audits?.[0];
-      if (!auditResult && business.website) {
-        try {
-          const audit = await this.auditService.auditBusinessById(business.id);
-          if (audit) auditedCount++;
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.log.warn(`Audit failed for "${business.name}": ${msg}`);
-        }
-      } else if (auditResult) {
-        auditedCount++;
-      }
-
-      // B. Lead Scoring
-      let lead = business.lead;
-      if (!lead) {
-        try {
-          const scored = await this.scoringService.scoreBusinessById(business.id);
-          leadsScoredCount++;
-          if (scored.classification === 'HOT' || scored.classification === 'WARM') {
-            qualifiedCount++;
-          }
-          // Fetch updated lead record
-          lead = (await this.db.lead.findUnique({ where: { businessId: business.id }, include: { outreach: true } })) as any;
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.log.warn(`Scoring failed for "${business.name}": ${msg}`);
-        }
-      } else {
-        leadsScoredCount++;
-        if (lead.classification === 'HOT' || lead.classification === 'WARM') {
-          qualifiedCount++;
-        }
-      }
-
-      if (!lead) continue;
-
-      // C. Contact Discovery
+      // A. Contact Discovery (inspects native contacts & resolves official website for no-website businesses)
       try {
         const contactSummary = await this.contactService.discoverForBusiness(business.id);
         if (contactSummary.contacts.length > 0) {
@@ -246,14 +208,50 @@ export class CampaignService {
         this.log.warn(`Contact discovery failed for "${business.name}": ${msg}`);
       }
 
-      // D. Personalization (Restricted to HOT/WARM leads with verified contacts)
-      // Re-fetch current lead state after scoring and contact discovery
-      const currentLead = await this.db.lead.findUnique({
-        where: { id: lead.id },
-        include: { business: true },
-      });
+      // Re-fetch business in case official website was resolved during contact discovery
+      const activeBiz = (await this.db.business.findUnique({
+        where: { id: business.id },
+        include: {
+          audits: { orderBy: { createdAt: 'desc' }, take: 1 },
+          contacts: true,
+        },
+      })) || business;
 
-      if (!currentLead) continue;
+      // B. Website Audit
+      let auditResult = activeBiz.audits?.[0];
+      if (!auditResult && activeBiz.website) {
+        try {
+          const audit = await this.auditService.auditBusinessById(activeBiz.id);
+          if (audit) auditedCount++;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.log.warn(`Audit failed for "${activeBiz.name}": ${msg}`);
+        }
+      } else if (auditResult) {
+        auditedCount++;
+      }
+
+      // C. Lead Scoring (computed with audit intelligence & all discovered contacts)
+      let lead: any = null;
+      try {
+        const scored = await this.scoringService.scoreBusinessById(activeBiz.id);
+        leadsScoredCount++;
+        if (scored.classification === 'HOT' || scored.classification === 'WARM') {
+          qualifiedCount++;
+        }
+        lead = await this.db.lead.findUnique({
+          where: { businessId: activeBiz.id },
+          include: { outreach: true },
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log.warn(`Scoring failed for "${activeBiz.name}": ${msg}`);
+      }
+
+      if (!lead) continue;
+
+      // D. Personalization & Draft Generation (Restricted to HOT/WARM leads with verified contacts)
+      const currentLead = lead;
 
       // Gate 1: Campaign lead-class criteria (HOT/WARM only)
       if (currentLead.classification === 'COLD' || (currentLead.classification !== 'HOT' && currentLead.classification !== 'WARM')) {

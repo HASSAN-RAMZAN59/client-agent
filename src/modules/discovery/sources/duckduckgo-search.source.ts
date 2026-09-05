@@ -13,8 +13,11 @@ import { safeSleep } from '../../../utils/sleeper.js';
 import { logger } from '../../../utils/logger.js';
 import { normalizeNiche } from '../niche-normalizer.js';
 
-export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
+import { SearchDiscoverySource, SearchProviderReport } from '../search-source.interface.js';
+
+export class DuckDuckGoSearchDiscoverySource implements SearchDiscoverySource {
   public readonly name = 'DuckDuckGo_PublicSearch';
+  public readonly provider = 'DUCKDUCKGO' as const;
   public readonly type: DiscoverySourceType = 'search_engine';
   public enabled: boolean;
   public priority: number = 2;
@@ -28,6 +31,11 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
     blockedCount: 0,
     itemsDiscovered: 0,
   };
+
+  private queriesAttempted = 0;
+  private rawResultsCount = 0;
+  private acceptedCandidatesCount = 0;
+  private errorCode?: string;
 
   private isExecuting: boolean = false;
   private log = logger.child('DuckDuckGoSearchSource');
@@ -53,7 +61,20 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
     this.status = status;
     this.outcome = status === 'RATE_LIMITED' ? 'RATE_LIMITED' : 'BLOCKED';
     this.metrics.blockedCount++;
+    this.errorCode = status;
     this.log.warn(`Source ${this.name} deactivated for current run: ${reason} (Status: ${status})`);
+  }
+
+  public getProviderReport(): SearchProviderReport {
+    return {
+      provider: 'DUCKDUCKGO',
+      status: this.status,
+      queriesAttempted: this.queriesAttempted,
+      rawResults: this.rawResultsCount,
+      acceptedCandidates: this.acceptedCandidatesCount,
+      blocked: this.status === 'BLOCKED' || this.outcome === 'BLOCKED',
+      errorCode: this.errorCode,
+    };
   }
 
   public resetStatus(): void {
@@ -73,6 +94,10 @@ export class DuckDuckGoSearchDiscoverySource implements DiscoverySource {
       blockedCount: 0,
       itemsDiscovered: 0,
     };
+    this.queriesAttempted = 0;
+    this.rawResultsCount = 0;
+    this.acceptedCandidatesCount = 0;
+    this.errorCode = undefined;
     this.outcome = this.enabled ? 'SUCCESS_EMPTY' : 'DISABLED';
   }
 

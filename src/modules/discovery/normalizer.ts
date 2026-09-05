@@ -292,13 +292,47 @@ export function createBusinessMatchKey(name: string, city: string): string {
   return `${cleanName}_${cleanCity}`;
 }
 
+import { normalizePhoneNumber } from '../contact-discovery/extractors/phone-extractor.js';
+
 /**
- * Cleans phone numbers into a standard format.
+ * Cleans phone numbers into standard E.164/country-aware format.
+ * Supports Pakistan 03xx mobile, +923xx mobile, 041/04x landline, US/NANP, UK, AU, and global.
  */
-export function normalizePhone(phone: string | undefined | null): string | undefined {
+export function normalizePhone(phone: string | undefined | null, countryHint?: string): string | undefined {
   if (!phone || typeof phone !== 'string') return undefined;
+
+  const rawDigits = phone.replace(/\D/g, '');
+  if (rawDigits.length < 7) return undefined;
+
+  // Pakistan detection:
+  // Starts with +92, 0092, or 92 (and has country digits), or starts with 03 (mobile), or 041/04x (landline), or countryHint === 'PK'
+  if (
+    phone.includes('+92') ||
+    phone.startsWith('0092') ||
+    rawDigits.startsWith('923') ||
+    rawDigits.startsWith('924') ||
+    rawDigits.startsWith('03') ||
+    rawDigits.startsWith('041') ||
+    countryHint === 'PK'
+  ) {
+    const parsed = normalizePhoneNumber(phone);
+    if (parsed?.normalized) {
+      return parsed.normalized;
+    }
+  }
 
   const cleaned = phone.trim().replace(/[^\d+()-\s.]/g, '');
   return cleaned.length >= 7 ? cleaned : undefined;
+}
+
+/**
+ * Checks if two phone numbers represent the same destination (e.g. 03001234567 vs +923001234567).
+ */
+export function arePhonesEquivalent(p1?: string | null, p2?: string | null): boolean {
+  if (!p1 || !p2) return false;
+  const n1 = normalizePhone(p1);
+  const n2 = normalizePhone(p2);
+  if (!n1 || !n2) return false;
+  return n1.replace(/\D/g, '') === n2.replace(/\D/g, '');
 }
 

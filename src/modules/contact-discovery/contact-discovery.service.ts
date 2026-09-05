@@ -13,6 +13,7 @@ import {
 } from '../../types/index.js';
 import { isExcludedDirectoryDomain } from '../discovery/excluded-domains.js';
 import { classifyWebsite } from '../discovery/website-classifier.js';
+import { OfficialWebsiteResolver } from '../discovery/official-website-resolver.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
 import { safeSleep } from '../../utils/sleeper.js';
@@ -20,6 +21,7 @@ import { safeSleep } from '../../utils/sleeper.js';
 export class ContactDiscoveryService {
   private log = logger.child('ContactDiscoveryService');
   private contactRepo = new ContactRepository();
+  private websiteResolver = new OfficialWebsiteResolver();
 
   /**
    * Discovers public contacts for a single business.
@@ -43,26 +45,62 @@ export class ContactDiscoveryService {
     const discoveredContacts: Map<string, DiscoveredContactRecord> = new Map();
     let overallStatus: ContactDiscoveryStatus = 'NONE_FOUND';
 
-    // 1. If business has existing verified phone from discovery listing, add as baseline
+    // A. Check discovery-source native contacts already persisted in DB
+    const existingDbContacts = await prisma.contact.findMany({
+      where: { businessId },
+    });
+    for (const ec of existingDbContacts) {
+      discoveredContacts.set(ec.value, {
+        value: ec.value,
+        type: ec.type as any,
+        classification: ec.classification as any,
+        email: ec.email || undefined,
+        contactName: ec.contactName || undefined,
+        role: ec.role || undefined,
+        rawPhone: ec.rawPhone || undefined,
+        normalizedPhone: ec.normalizedPhone || undefined,
+        source: ec.source,
+        sourceUrl: ec.sourceUrl || undefined,
+        sourceType: ec.sourceType as any,
+        confidence: ec.confidence as any,
+        qualityScore: ec.qualityScore,
+        status: ec.status as any,
+        discoveredAt: ec.discoveredAt,
+      });
+      if (ec.status === 'VERIFIED_PUBLIC') {
+        overallStatus = 'VERIFIED_PUBLIC';
+      }
+    }
+
+    // B. If business has existing verified phone from discovery listing, add as baseline
     if (business.phone) {
       const phoneVal = validatePhone(business.phone);
-      if (phoneVal.isValid && phoneVal.normalized) {
+      if (phoneVal.isValid && phoneVal.normalized && !discoveredContacts.has(phoneVal.normalized)) {
+        const isOsm = business.source === 'osm_overpass';
+        const isListing = business.source === 'directory_hint';
+        const classification = isOsm
+          ? 'OSM_PUBLIC_PHONE'
+          : isListing
+          ? 'VERIFIED_BUSINESS_LISTING_PHONE'
+          : 'OFFICIAL_SITE_PHONE';
+        const sourceType = isOsm ? 'OSM_TAG' : isListing ? 'PUBLIC_LISTING' : 'OFFICIAL_WEBSITE';
+
         const quality = calculateContactQualityScore({
           type: 'PHONE',
-          classification: 'BUSINESS_GENERIC',
-          sourceType: 'PUBLIC_LISTING',
+          classification,
+          sourceType,
         });
 
         discoveredContacts.set(phoneVal.normalized, {
           value: phoneVal.normalized,
           type: 'PHONE',
-          classification: 'BUSINESS_GENERIC',
+          classification,
           rawPhone: business.phone,
           normalizedPhone: phoneVal.normalized,
           source: business.source || 'PUBLIC_LISTING',
           sourceUrl: business.sourceUrl || undefined,
-          sourceType: 'PUBLIC_LISTING',
-          confidence: 'MEDIUM',
+          sourceType,
+          confidence: isOsm ? 'HIGH' : 'MEDIUM',
           qualityScore: quality,
           status: 'VERIFIED_PUBLIC',
           discoveredAt: new Date(),
@@ -71,7 +109,37 @@ export class ContactDiscoveryService {
       }
     }
 
-    // 2. Official Website Crawling (Homepage + Max Configured Sub-pages)
+    // C. If no official website exists: attempt official website resolution
+    if (!business.website || business.website.trim().length === 0) {
+      try {
+        const resolution = await this.websiteResolver.resolveOfficialWebsite({
+          name: business.name,
+          city: business.city,
+          country: business.country || undefined,
+        });
+
+        if (
+          (resolution.status === 'OFFICIAL_CONFIRMED' || resolution.status === 'OFFICIAL_PROBABLE') &&
+          resolution.resolvedUrl
+        ) {
+          this.log.info(`Resolved official website for "${business.name}": ${resolution.resolvedUrl}`);
+          business.website = resolution.resolvedUrl;
+          if (!options.dryRun) {
+            await prisma.business.update({
+              where: { id: business.id },
+              data: {
+                website: resolution.resolvedUrl,
+              },
+            });
+          }
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log.warn(`Official website resolution failed for "${business.name}": ${msg}`);
+      }
+    }
+
+    // D. Official Website Crawling (Homepage + Max Configured Sub-pages)
     if (business.website && business.website.trim().length > 0) {
       const siteClassification = classifyWebsite(business.website, business.name, business.city);
       if (siteClassification.type !== 'OFFICIAL_BUSINESS_SITE') {
@@ -221,7 +289,7 @@ export class ContactDiscoveryService {
       if (val.isValid) {
         const emailDomain = item.email.split('@')[1]?.toLowerCase();
         const isPlatform = emailDomain ? isExcludedDirectoryDomain(emailDomain) : false;
-        const classification = isPlatform ? 'PLATFORM_CONTACT' : item.classification;
+        const classification = isPlatform ? 'PLATFORM_CONTACT' : 'OFFICIAL_SITE_EMAIL';
 
         const quality = calculateContactQualityScore({
           type: 'EMAIL',
@@ -258,7 +326,7 @@ export class ContactDiscoveryService {
       if (val.isValid && val.normalized && !accumulator.has(val.normalized)) {
         const quality = calculateContactQualityScore({
           type: 'PHONE',
-          classification: 'BUSINESS_GENERIC',
+          classification: 'OFFICIAL_SITE_PHONE',
           sourceType,
         });
 
@@ -267,7 +335,7 @@ export class ContactDiscoveryService {
           rawPhone: item.rawPhone,
           normalizedPhone: val.normalized,
           type: 'PHONE',
-          classification: 'BUSINESS_GENERIC',
+          classification: 'OFFICIAL_SITE_PHONE',
           source: 'official_website_html',
           sourceUrl,
           sourceType,

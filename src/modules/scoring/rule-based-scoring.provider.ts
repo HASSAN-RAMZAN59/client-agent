@@ -101,10 +101,26 @@ export class RuleBasedLeadScoringProvider implements LeadScoringProvider {
 
     // 3. Contactability Score (15% weight)
     const hasContactForm = audit ? Boolean(audit.hasContactForm) : false;
-    const hasEmail = contacts.length > 0 || Boolean(contacts.find((c) => c.email));
+    const hasEmail = Boolean(
+      contacts.some(
+        (c) =>
+          (c.type === 'EMAIL' || (c.email && c.email.length > 0)) &&
+          c.classification !== 'PLATFORM_CONTACT' &&
+          c.classification !== 'UNVERIFIED_CONTACT'
+      )
+    );
+    const hasPhone = Boolean(
+      business.phone ||
+      contacts.some(
+        (c) =>
+          c.type === 'PHONE' &&
+          c.classification !== 'PLATFORM_CONTACT' &&
+          c.classification !== 'UNVERIFIED_CONTACT'
+      )
+    );
     const contactRes = analyzeContactability({
       hasEmail,
-      hasPhone: Boolean(business.phone),
+      hasPhone,
       hasWebsite,
       hasContactForm,
       hasAddress: Boolean(business.address),

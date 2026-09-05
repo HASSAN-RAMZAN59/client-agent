@@ -1,6 +1,6 @@
 import { DiscoverySource, DiscoverySourceType, SourceMetrics } from '../discovery-source.interface.js';
-import { BusinessDiscoveryQuery, DiscoveredBusinessInput, SourceStatus, DiscoverySourceOutcome } from '../../../types/index.js';
-import { normalizeBusinessName, normalizePhone, normalizeUrl } from '../normalizer.js';
+import { BusinessDiscoveryQuery, DiscoveredBusinessInput, DiscoveredContactInput, SourceStatus, DiscoverySourceOutcome } from '../../../types/index.js';
+import { normalizeBusinessName, normalizeEmail, normalizePhone, normalizeUrl } from '../normalizer.js';
 import { calculateOfficialWebsiteConfidence } from '../website-verifier.js';
 import { getMarketProfile } from '../../../config/markets.js';
 import { safetyControls, SafetyControls } from '../../../config/safety.js';
@@ -310,11 +310,83 @@ out center ${limit * 3};
         const normalizedName = normalizeBusinessName(rawName);
         if (!normalizedName || normalizedName.length < 2) continue;
 
+        const osmElementUrl = `https://www.openstreetmap.org/${el.type}/${el.id}`;
+        const nativeContacts: DiscoveredContactInput[] = [];
+
+        // 1. Websites & Socials
         const rawWebsite = el.tags.website || el.tags['contact:website'] || el.tags.url;
         const website = normalizeUrl(rawWebsite) || undefined;
-        const rawPhone = el.tags.phone || el.tags['contact:phone'];
-        const phone = normalizePhone(rawPhone) || undefined;
 
+        // 2. Extract Phone & Mobile OSM tags with exact provenance
+        const phoneTags = [
+          { tag: 'contact:phone', val: el.tags['contact:phone'] },
+          { tag: 'phone', val: el.tags.phone },
+          { tag: 'contact:mobile', val: el.tags['contact:mobile'] },
+          { tag: 'mobile', val: el.tags.mobile },
+        ];
+
+        let primaryPhone: string | undefined = undefined;
+        const seenPhones = new Set<string>();
+
+        for (const pt of phoneTags) {
+          if (!pt.val) continue;
+          const normalized = normalizePhone(pt.val, market.countryCode);
+          if (normalized && !seenPhones.has(normalized)) {
+            seenPhones.add(normalized);
+            if (!primaryPhone) primaryPhone = normalized;
+            nativeContacts.push({
+              value: normalized,
+              type: 'PHONE',
+              classification: 'OSM_PUBLIC_PHONE',
+              rawPhone: pt.val,
+              normalizedPhone: normalized,
+              source: 'osm_overpass',
+              sourceUrl: osmElementUrl,
+              sourceType: 'OSM_TAG',
+              field: pt.tag,
+              confidence: 'HIGH',
+              qualityScore: 80,
+              status: 'VERIFIED_PUBLIC',
+              isVerified: true,
+              isPublic: true,
+            });
+          }
+        }
+
+        // 3. Extract Email OSM tags with exact provenance
+        const emailTags = [
+          { tag: 'contact:email', val: el.tags['contact:email'] },
+          { tag: 'email', val: el.tags.email },
+        ];
+
+        let hasEmail = false;
+        const seenEmails = new Set<string>();
+
+        for (const et of emailTags) {
+          if (!et.val) continue;
+          const cleanEmail = normalizeEmail(et.val);
+          if (cleanEmail && cleanEmail.includes('@') && !seenEmails.has(cleanEmail)) {
+            seenEmails.add(cleanEmail);
+            hasEmail = true;
+            nativeContacts.push({
+              value: cleanEmail,
+              email: cleanEmail,
+              type: 'EMAIL',
+              classification: 'OSM_PUBLIC_EMAIL',
+              source: 'osm_overpass',
+              sourceUrl: osmElementUrl,
+              sourceType: 'OSM_TAG',
+              field: et.tag,
+              confidence: 'HIGH',
+              qualityScore: 85,
+              status: 'VERIFIED_PUBLIC',
+              isVerified: true,
+              isPublic: true,
+            });
+          }
+        }
+
+        // 4. Address Components
         const street = el.tags['addr:street'] || '';
         const houseNumber = el.tags['addr:housenumber'] || '';
         const postalCode = el.tags['addr:postcode'] || query.postalCode || undefined;
@@ -327,6 +399,14 @@ out center ${limit * 3};
           ? calculateOfficialWebsiteConfidence(normalizedName, website)
           : 'UNKNOWN';
 
+        const contactChannel = website
+          ? 'WEBSITE_LEAD'
+          : hasEmail
+          ? 'EMAIL_LEAD'
+          : primaryPhone
+          ? 'PHONE_ONLY_LEAD'
+          : 'NO_CONTACT_LEAD';
+
         results.push({
           name: normalizedName,
           rawName: el.tags?.name || normalizedName,
@@ -337,19 +417,22 @@ out center ${limit * 3};
           postalCode,
           marketCode: market.countryCode,
           address,
-          phone,
-          phoneClassification: phone ? 'BUSINESS_PHONE' : undefined,
+          phone: primaryPhone,
+          phoneClassification: primaryPhone ? 'BUSINESS_PHONE' : undefined,
           website,
           source: 'osm_overpass',
-          sourceUrl: `https://www.openstreetmap.org/${el.type}/${el.id}`,
+          sources: ['osm_overpass'],
+          osmId: `${el.type}/${el.id}`,
+          sourceUrl: osmElementUrl,
           queryVariant: `${nicheDef.primaryQueryTerm} in ${query.city}`,
-          contactChannel: website ? 'WEBSITE_LEAD' : (phone ? 'PHONE_ONLY_LEAD' : 'NO_CONTACT_LEAD'),
+          contactChannel,
           websiteSource: website ? 'osm_overpass' : undefined,
-          phoneSource: phone ? 'osm_overpass' : undefined,
+          phoneSource: primaryPhone ? 'osm_overpass' : undefined,
           addressSource: address ? 'osm_overpass' : undefined,
           officialWebsiteConfidence: confidence,
           nameConfidence: 'HIGH',
           discoveredAt: now,
+          nativeContacts,
         });
 
         if (results.length >= limit) break;
