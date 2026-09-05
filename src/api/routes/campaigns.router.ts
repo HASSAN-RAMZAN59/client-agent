@@ -18,10 +18,29 @@ const smtpProvider = new SmtpDeliveryProvider();
  * GET /api/campaigns
  * Lists all campaigns enriched with real database metric counts and latest run state.
  */
-campaignsRouter.get('/campaigns', async (_req: Request, res: Response) => {
+campaignsRouter.get('/campaigns', async (req: Request, res: Response) => {
   try {
     const allCampaigns = await campaignService.listCampaigns();
-    const rawCampaigns = allCampaigns.slice(0, 50);
+    const includeTest = req.query.includeTest === 'true';
+    const includeArchived = req.query.includeArchived === 'true';
+
+    const filtered = allCampaigns.filter((c) => {
+      if (!includeArchived && c.status === 'ARCHIVED') {
+        return false;
+      }
+      if (!includeTest) {
+        if (
+          /^Test Dashboard Campaign \d+/i.test(c.name) ||
+          /^TEST_SUITE_/i.test(c.name) ||
+          /^AutomatedFixture_/i.test(c.name)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const rawCampaigns = filtered.slice(0, 100);
 
     const enriched = await Promise.all(
       rawCampaigns.map(async (c) => {
@@ -34,6 +53,7 @@ campaignsRouter.get('/campaigns', async (_req: Request, res: Response) => {
           state: c.state || '',
           city: c.city,
           niche: c.niche,
+          status: c.status,
           targetBusinesses: c.targetBusinesses,
           minLeadScore: c.minLeadScore,
           allowedLeadClasses: ['HOT', 'WARM'],
@@ -294,5 +314,114 @@ campaignsRouter.get('/campaigns/:id/progress', async (req: Request, res: Respons
   } catch (error: any) {
     log.error('Failed to get campaign progress', { error: error?.message });
     res.status(500).json({ status: 'error', message: error?.message || 'Failed to fetch progress' });
+  }
+});
+
+/**
+ * DELETE /api/campaigns/:id
+ * Safely deletes a single campaign and its exclusive data without resetting the database.
+ */
+campaignsRouter.delete('/campaigns/:id', async (req: Request, res: Response) => {
+  try {
+    const campaignId = req.params.id as string;
+    const campaign = await db.campaign.findUnique({
+      where: { id: campaignId },
+      include: {
+        businesses: true,
+        campaignBusinesses: true,
+        runs: true,
+      },
+    });
+
+    if (!campaign) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Campaign not found',
+      });
+    }
+
+    const campaignBizIds = Array.from(
+      new Set([
+        ...campaign.businesses.map((b) => b.id),
+        ...campaign.campaignBusinesses.map((cb) => cb.businessId),
+      ])
+    );
+
+    const exclusiveBizIds: string[] = [];
+    for (const bid of campaignBizIds) {
+      const otherJoins = await db.campaignBusiness.findMany({
+        where: { businessId: bid, campaignId: { not: campaignId } },
+      });
+      const biz = await db.business.findUnique({ where: { id: bid } });
+      if ((!biz?.campaignId || biz.campaignId === campaignId) && otherJoins.length === 0) {
+        exclusiveBizIds.push(bid);
+      }
+    }
+
+    const leads = await db.lead.findMany({
+      where: { businessId: { in: exclusiveBizIds } },
+      select: { id: true },
+    });
+    const leadIds = leads.map((l) => l.id);
+
+    const outreaches = await db.outreach.findMany({
+      where: { leadId: { in: leadIds } },
+      select: { id: true },
+    });
+    const outreachIds = outreaches.map((o) => o.id);
+
+    if (outreachIds.length > 0) {
+      await db.followUp.deleteMany({ where: { outreachId: { in: outreachIds } } });
+      await db.reply.deleteMany({ where: { outreachId: { in: outreachIds } } });
+      await db.outreach.deleteMany({ where: { id: { in: outreachIds } } });
+    }
+
+    if (leadIds.length > 0) {
+      await db.lead.deleteMany({ where: { id: { in: leadIds } } });
+    }
+
+    if (exclusiveBizIds.length > 0) {
+      await db.contact.deleteMany({ where: { businessId: { in: exclusiveBizIds } } });
+      await db.websiteAudit.deleteMany({ where: { businessId: { in: exclusiveBizIds } } });
+    }
+
+    await db.campaignBusiness.deleteMany({ where: { campaignId } });
+
+    if (exclusiveBizIds.length > 0) {
+      await db.business.deleteMany({ where: { id: { in: exclusiveBizIds } } });
+    }
+
+    await db.campaignRun.deleteMany({ where: { campaignId } });
+
+    await db.activityLog.deleteMany({
+      where: {
+        OR: [
+          { entityId: campaignId },
+          { entityId: { in: campaign.runs.map((r) => r.id) } },
+        ],
+      },
+    });
+
+    await db.campaign.delete({ where: { id: campaignId } });
+
+    await activityLogService.logEvent({
+      eventType: 'CAMPAIGN_DELETED',
+      entityType: 'CAMPAIGN',
+      entityId: campaignId,
+      actor: 'HUMAN_OPERATOR',
+      metadata: { name: campaign.name, city: campaign.city, niche: campaign.niche },
+    });
+
+    res.json({
+      status: 'success',
+      data: {
+        id: campaignId,
+        name: campaign.name,
+        message: `Campaign "${campaign.name}" and exclusive data deleted successfully`,
+      },
+    });
+  } catch (error: any) {
+    log.error('Failed to delete campaign', { error: error?.message });
+    res.status(500).json({ status: 'error', message: error?.message || 'Failed to delete campaign' });
   }
 });

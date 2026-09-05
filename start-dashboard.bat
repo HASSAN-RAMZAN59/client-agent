@@ -22,15 +22,13 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-REM Verify if dist-dashboard exists; if not, build it safely
-if not exist "dist-dashboard\index.html" (
-    echo [INFO] First-time setup: Building local dashboard assets...
-    call npm run build:dashboard
-    if %ERRORLEVEL% neq 0 (
-        echo [ERROR] Dashboard build failed.
-        pause
-        exit /b 1
-    )
+REM Build and verify the latest production dashboard bundle
+echo [INFO] Building latest operator dashboard production bundle...
+call npm run build:dashboard
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Dashboard build failed.
+    pause
+    exit /b 1
 )
 
 echo [INFO] Starting local dashboard server at http://127.0.0.1:3000...

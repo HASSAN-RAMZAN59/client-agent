@@ -95,6 +95,7 @@ export interface CampaignSummary {
   state: string;
   city: string;
   niche: string;
+  status: string;
   targetBusinesses: number;
   minLeadScore: number;
   allowedLeadClasses: string[];

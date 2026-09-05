@@ -11,6 +11,7 @@ export interface CampaignContextType {
   approvedCount: number;
   refreshNavigationSummary: (campaignId?: string) => Promise<void>;
   reloadCampaigns: () => Promise<CampaignSummary[]>;
+  deleteCampaign: (id: string) => Promise<void>;
   loading: boolean;
 }
 
@@ -30,12 +31,32 @@ export const CampaignProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const cList = await api.getCampaigns();
       setCampaigns(cList);
+      setSelectedCampaignIdState((prev) => {
+        if (!prev) {
+          return cList.length > 0 ? cList[0]?.id || '' : '';
+        }
+        const exists = cList.some((c) => c.id === prev);
+        if (exists) {
+          return prev;
+        }
+        return cList.length > 0 ? cList[0]?.id || '' : '';
+      });
       return cList;
     } catch (err) {
       console.error('Failed to load campaigns in context', err);
       return [];
     }
   }, []);
+
+  const deleteCampaign = useCallback(async (campaignId: string) => {
+    try {
+      await api.deleteCampaign(campaignId);
+      await reloadCampaigns();
+    } catch (err) {
+      console.error('Failed to delete campaign in context', err);
+      throw err;
+    }
+  }, [reloadCampaigns]);
 
   const refreshNavigationSummary = useCallback(async (campaignIdToFetch?: string) => {
     const targetId = campaignIdToFetch !== undefined ? campaignIdToFetch : selectedCampaignId;
@@ -69,17 +90,28 @@ export const CampaignProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     async function init() {
       try {
         setLoading(true);
-        const cList = await reloadCampaigns();
-        if (cList.length > 0) {
-          setSelectedCampaignIdState((prev) => (cList.some((c) => c.id === prev) ? prev : cList[0]?.id || ''));
-        } else {
-          setSelectedCampaignIdState('');
-        }
+        await reloadCampaigns();
       } finally {
         setLoading(false);
       }
     }
     init();
+  }, [reloadCampaigns]);
+
+  // Background auto-refresh so external creations (CLI, pipeline runs) appear without page reload
+  useEffect(() => {
+    const interval = setInterval(() => {
+      reloadCampaigns();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [reloadCampaigns]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      reloadCampaigns();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [reloadCampaigns]);
 
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId) || null;
@@ -95,6 +127,7 @@ export const CampaignProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         approvedCount,
         refreshNavigationSummary,
         reloadCampaigns,
+        deleteCampaign,
         loading,
       }}
     >

@@ -74,11 +74,19 @@ const AppContent: React.FC = () => {
         )}
 
         {activePage === 'review' && (
-          <ReviewQueuePage />
+          <ReviewQueuePage
+            campaigns={campaigns}
+            selectedCampaignId={selectedCampaignId}
+            onSelectCampaign={(id) => setSelectedCampaignId(id)}
+            onRefreshCounts={() => refreshNavigationSummary(selectedCampaignId)}
+          />
         )}
 
         {activePage === 'pilot' && (
-          <PilotPage />
+          <PilotPage
+            selectedCampaignId={selectedCampaignId}
+            onRefreshCounts={() => refreshNavigationSummary(selectedCampaignId)}
+          />
         )}
 
         {activePage === 'phone-leads' && <PhoneLeadsPage />}

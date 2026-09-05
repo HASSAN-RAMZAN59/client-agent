@@ -182,16 +182,19 @@ export const ReviewQueuePage: React.FC<{
 
         {/* Campaign Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 600, color: '#94a3b8' }}>
+          <label htmlFor="review-campaign-select" style={{ fontSize: '13px', fontWeight: 600, color: '#94a3b8' }}>
             Target Campaign:
           </label>
           <select
+            id="review-campaign-select"
             className="form-select"
             style={{ width: '260px' }}
             value={selectedCampaignId}
             onChange={(e) => onSelectCampaign(e.target.value)}
           >
-            <option value="">-- Select Campaign Required --</option>
+            <option value="">
+              {campaigns.length === 0 ? 'No Active Campaign' : '-- Select Campaign Required --'}
+            </option>
             {campaigns.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.city}, {c.niche})

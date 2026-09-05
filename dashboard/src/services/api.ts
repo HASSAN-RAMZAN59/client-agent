@@ -57,6 +57,7 @@ export const api = {
       body: JSON.stringify(options || {}),
     }),
   getCampaignProgress: (id: string) => request<any>(`/campaigns/${id}/progress`),
+  deleteCampaign: (id: string) => request<any>(`/campaigns/${id}`, { method: 'DELETE' }),
 
   // Leads
   getLeads: (params: Record<string, string | number | boolean | undefined>) => {

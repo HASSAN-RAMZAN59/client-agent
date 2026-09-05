@@ -6,6 +6,7 @@ import { logger } from '../utils/logger.js';
 export type ActivityEventType =
   | 'CAMPAIGN_CREATED'
   | 'CAMPAIGN_STARTED'
+  | 'CAMPAIGN_DELETED'
   | 'BUSINESS_DISCOVERED'
   | 'AUDIT_COMPLETED'
   | 'CONTACT_VERIFIED'

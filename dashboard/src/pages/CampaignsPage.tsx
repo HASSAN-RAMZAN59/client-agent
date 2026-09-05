@@ -2,12 +2,23 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../services/api.ts';
 import { CampaignSummary } from '../types/api.ts';
 import { StatusBadge } from '../components/StatusBadge.tsx';
-import { Play, Plus, X, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Play, Plus, X, AlertCircle, CheckCircle2, ChevronRight, Trash2 } from 'lucide-react';
+import { useCampaign } from '../context/CampaignContext.tsx';
 
 export const CampaignsPage: React.FC<{
-  onSelectCampaign: (id: string) => void;
-  selectedCampaignId: string;
-}> = ({ onSelectCampaign, selectedCampaignId }) => {
+  onSelectCampaign?: (id: string) => void;
+  selectedCampaignId?: string;
+}> = ({ onSelectCampaign: propOnSelect, selectedCampaignId: propSelectedId }) => {
+  let context: ReturnType<typeof useCampaign> | null = null;
+  try {
+    context = useCampaign();
+  } catch {
+    context = null;
+  }
+
+  const selectedCampaignId = propSelectedId !== undefined ? propSelectedId : (context?.selectedCampaignId ?? '');
+  const onSelectCampaign = propOnSelect ?? context?.setSelectedCampaignId ?? (() => {});
+
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCity, setFilterCity] = useState('');
@@ -96,8 +107,32 @@ export const CampaignsPage: React.FC<{
 
       setCreatedSummary(res);
       await loadCampaigns();
+      if (context?.reloadCampaigns) {
+        const updated = await context.reloadCampaigns();
+        const newId = res?.campaign?.id || updated[0]?.id;
+        if (newId) {
+          context.setSelectedCampaignId(newId);
+          onSelectCampaign(newId);
+        }
+      }
     } catch (err: any) {
       setCreateError(err.message || 'Failed to create campaign');
+    }
+  }
+
+  async function handleDeleteCampaign(campaignId: string, campaignName: string) {
+    if (!window.confirm(`Are you sure you want to delete campaign "${campaignName}" and its operational data?`)) {
+      return;
+    }
+    try {
+      if (context?.deleteCampaign) {
+        await context.deleteCampaign(campaignId);
+      } else {
+        await api.deleteCampaign(campaignId);
+      }
+      await loadCampaigns();
+    } catch (err: any) {
+      alert(`Failed to delete campaign: ${err.message}`);
     }
   }
 
@@ -279,6 +314,14 @@ export const CampaignsPage: React.FC<{
                         }}
                       >
                         <Play size={12} /> Run
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ padding: '4px 8px', fontSize: '11px', color: '#f87171' }}
+                        title="Delete Campaign"
+                        onClick={() => handleDeleteCampaign(c.id, c.name)}
+                      >
+                        <Trash2 size={12} /> Delete
                       </button>
                     </div>
                   </td>
